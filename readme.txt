@@ -18,7 +18,7 @@ Command line
 
 Usage:
 
-        asm6 [-options] sourcefile [outputfile] [listfile]
+        asm6f [-options] sourcefile [outputfile] [listfile]
 
 Options:
 
