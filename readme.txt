@@ -10,6 +10,7 @@ Yes, it's another fork of ASM6.
 Features compared to stock ASM6
 --------------------------------------------------------------
 * Support for some illegal/undocumented opcodes.
+  (Note: Support for unstable opcodes requires compile flags.)
 * Code from sonder's fork of ASM6 to allow output of FCEUX-compatible .nl files.
 
 --------------------------------------------------------------
@@ -18,7 +19,7 @@ Command line
 
 Usage:
 
-        asm6f [-options] sourcefile [outputfile] [listfile]
+		asm6f [-options] sourcefile [outputfile] [listfile]
 
 Options:
 
@@ -35,13 +36,13 @@ Right now, everything else is the same as the original ASM6, so check out
 readme-original.txt for more information.
 
 --------------------------------------------------------------
-To-Do List
+freem's To-Do List
 --------------------------------------------------------------
 * add .undef?
-* Find a way to allow disabling of certain defines when using -n
- * possibly via directives called "IGNORENL" and "ENDINL"
+* Add "IGNORENL" and "ENDINL" for ignoring certain defines when using -n
 * Allow -d option to set the symbols to whatever value instead of 1
 * add ca65 debug format for NintendulatorDX
+* add absolute addressing via "a:" (ca65 syntax), if loopy doesn't do it first
 
 --------------------------------------------------------------
 <EOF>

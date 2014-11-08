@@ -212,7 +212,6 @@ byte sed[]={0xf8,IMP,-1};
 // asm6f addition:
 /* Undocumented/Illegal Opcodes (NMOS 6502 only!) */
 // names/information taken from http://www.oxyron.de/html/opcodes02.html
-// freem todo: put unstable instructions behid compile flags
 
 byte slo[]={0x07,ZP,0x17,ZPX,0x03,INDX,0x13,INDY,0x0f,ABS,0x1F,ABSX,0x1B,ABSY,-1};
 byte rla[]={0x27,ZP,0x37,ZPX,0x23,INDX,0x33,INDY,0x2f,ABS,0x3f,ABSX,0x3b,ABSY,-1};
@@ -230,15 +229,19 @@ byte arr[]={0x6b,IMM,-1};
 byte axs[]={0xcb,IMM,-1};
 byte las[]={0xbb,ABSY,-1};
 
-// unstable in certain matters:
+#ifdef UNSTABLE_INSTR
+// "unstable in certain matters":
 byte ahx[]={0x93,INDY,0x9f,ABSY,-1};
 byte shy[]={0x9c,ABSX,-1};
 byte shx[]={0x9e,ABSY,-1};
 byte tas[]={0x9b,ABSY,-1};
+#endif
 
-// highly unstable:
+#ifdef HIGHLY_UNSTABLE_INSTR
+// "highly unstable (results are not predictable on some machines)":
 byte xaa[]={0x8b,IMM,-1};
 //byte lax[]={0xab,IMM,-1};
+#endif
  
 void *rsvdlist[]={	   //all reserved words
 		"BRK",brk,
@@ -297,6 +300,7 @@ void *rsvdlist[]={	   //all reserved words
 		"STX",stx,
 		"DEC",dec,
 		"INC",inc,
+
 		/* begin undocumented/illegal opcodes */
 		"SLO",slo,
 		"RLA",rla,
@@ -311,13 +315,20 @@ void *rsvdlist[]={	   //all reserved words
 		"ARR",arr,
 		"AXS",axs,
 		"LAS",las,
+
 		/* somewhat unstable instructions */
+#ifdef UNSTABLE_INSTR
 		"AHX",ahx,
 		"SHY",shy,
 		"SHX",shx,
 		"TAS",tas,
+#endif
+
 		/* highly unstable instructions */
+#ifdef HIGHLY_UNSTABLE_INSTR
 		"XAA",xaa,
+#endif
+
 		/* end list */
 		0, 0
 };
@@ -2342,7 +2353,7 @@ void expandrept(int errline,char *errsrc) {
 }
 
 int enum_saveaddr;
-void _enum(label *id, char **next) {	   
+void _enum(label *id, char **next) {
 	int val=0;
 	dependant=0;
 	val=eval(next,WHOLEEXP);
