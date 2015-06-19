@@ -388,6 +388,7 @@ char CantOpen[]="Can't open file.";
 char ExtraENDM[]="ENDM without MACRO.";
 char ExtraENDR[]="ENDR without REPT.";
 char ExtraENDE[]="ENDE without ENUM.";
+//char ExtraENDINL[]="ENDINL without IGNORENL.";
 char RecurseMACRO[]="Recursive MACRO not allowed.";
 char RecurseEQU[]="Recursive EQU not allowed.";
 char NoENDIF[]="Missing ENDIF.";
@@ -1156,7 +1157,7 @@ void addlabel(char *word, int local) {
 		(*labelhere).line=ptr_from_bool(addr>=0);
 		(*labelhere).used=0;
 
-		// freem edit from asm6_sonere.c
+		// freem edit from asm6_sonder.c
 		(*labelhere).pos=filepos;
 
 		if(c==LOCALCHAR || local) { //local
