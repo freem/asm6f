@@ -26,18 +26,6 @@
 	Changed macro usage: no parentheses around arg list, and args must be comma separated.
 */
 
-/* Original TODO */
-//todo - do NOT open source files in update mode, since we do not want to modify them in any way
-//todo - don't open text files in binary mode
-//todo - thoroughly verify operation on big-endian machine
-//todo - avoid putting special values into pointers, like (char*)1
-//todo - don't depend on platform supporting unaligned objects
-//todo - make everything static
-//todo - redundant parsing code is all over the place, try clean it up / consolidate
-
-/* freem TODO */
-// (the todo is now todo as well :|)
-
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>

@@ -185,11 +185,24 @@ IGNORENL/ENDINL
                 ENDINL
 
 --------------------------------------------------------------
+loopy's original To-Do List
+--------------------------------------------------------------
+//todo - do NOT open source files in update mode, since we do not want to modify them in any way
+//todo - don't open text files in binary mode
+//todo - thoroughly verify operation on big-endian machine
+//todo - avoid putting special values into pointers, like (char*)1
+//todo - don't depend on platform supporting unaligned objects
+//todo - make everything static
+//todo - redundant parsing code is all over the place, try clean it up / consolidate
+
+--------------------------------------------------------------
 freem's To-Do List
 --------------------------------------------------------------
 * add .undef? (could react badly on other passes)
 * Allow -d option to set the symbols to whatever value instead of 1?
 * add absolute addressing via "a:" (ca65 syntax), if loopy doesn't do it first
+ * This could get awkward, so possibly support a different syntax,
+ despite incompatibility?
 * add ca65 debug format for NintendulatorDX
 
 --------------------------------------------------------------
