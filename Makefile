@@ -25,4 +25,4 @@ highlyunstable:
 # sorry to linux people for forcing .exe but I can't get this makefile to determine
 # that I'm really on windows
 clean:
-	rm -f asm6f$(DOTEXE) asm6f-unstable$(DOTEXE) asm6f-hunstable$(DOTEXE) *.exe
+	$(RM) asm6f$(DOTEXE) asm6f-unstable$(DOTEXE) asm6f-hunstable$(DOTEXE) *.exe
