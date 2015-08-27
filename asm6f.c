@@ -36,7 +36,7 @@
 //todo - redundant parsing code is all over the place, try clean it up / consolidate
 
 /* freem TODO */
-// implement ignorenl, endinl
+// (the todo is now todo as well :|)
 
 #include <stdio.h>
 #include <string.h>
