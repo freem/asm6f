@@ -200,6 +200,7 @@ freem's To-Do List
 --------------------------------------------------------------
 * add .undef? (could react badly on other passes)
 * Allow -d option to set the symbols to whatever value instead of 1?
+* Ignore defines from command line when using -n
 * add absolute addressing via "a:" (ca65 syntax), if loopy doesn't do it first
  * This could get awkward (e.g. if you have a short label named "a"), so possibly
  support a different syntax, despite incompatibility?
