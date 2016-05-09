@@ -1,0 +1,262 @@
+--- asm6.c	2010-11-03 09:22:30.000000000 -0500
++++ asm6-fceuxnl.c	2016-05-08 23:54:29.336022148 -0500
+@@ -58,6 +58,7 @@
+     const char *name;       //label name
+     // ptrdiff_t so it can hold function pointer on 64-bit machines
+     ptrdiff_t value;        //PC (label), value (equate), param count (macro), funcptr (reserved)
++    int pos;                // location in file; used to determine bank when exporting labels [sonder]
+     char *line;             //for macro or equate, also used to mark unknown label
+                             //*next:text->*next:text->..
+                             //for macros, the first <value> lines hold param names
+@@ -66,17 +67,20 @@
+     int used;               //for EQU and MACRO recursion check
+     int pass;               //when label was last defined
+     int scope;              //where visible (0=global, nonzero=local)
++    int ignorenl;           //output this label in .nl files? (0=yes, nonzero=no) [freem]
+     void *link;             //labels that share the same name (local labels) are chained together
+ } label;
+ 
+ label firstlabel={          //'$' label
+     "$",//*name
+     0,//value
++    0,//pos [freem, based on sonder's addition]
+     (char*)&true_ptr,//*line
+     VALUE,//type
+     0,//used
+     0,//pass
+     0,//scope
++    0,//ignorenl [freem]
+     0,//link
+ };
+ 
+@@ -124,11 +128,15 @@
+ void rept(label*,char**);
+ void _enum(label*,char**);
+ void ende(label*,char**);
++void ignorenl(label*,char**); // [freem]
++void endinl(label*,char**); // [freem]
+ void fillval(label*,char**);
+ void expandmacro(label*,char**,int,char*);
+ void expandrept(int,char*);
+ void make_error(label*,char**);
+ 
++int filepos = 0; // [sonder]
++
+ enum optypes {ACC,IMM,IND,INDX,INDY,ZPX,ZPY,ABSX,ABSY,ZP,ABS,REL,IMP};
+ int opsize[]={0,1,2,1,1,1,1,2,2,1,2,1,0};
+ char ophead[]={0,'#','(','(','(',0,0,0,0,0,0,0,0};
+@@ -280,6 +288,8 @@
+         "ENDR",endr,
+         "ENUM",_enum,
+         "ENDE",ende,
++        "IGNORENL",ignorenl, // [freem]
++        "ENDINL",endinl, // [freem]
+         "FILLVALUE",fillval,
+         "DL",dl,
+         "DH",dh,
+@@ -303,12 +313,14 @@
+ char ExtraENDM[]="ENDM without MACRO.";
+ char ExtraENDR[]="ENDR without REPT.";
+ char ExtraENDE[]="ENDE without ENUM.";
++char ExtraENDINL[]="ENDINL without IGNORENL."; // [freem]
+ char RecurseMACRO[]="Recursive MACRO not allowed.";
+ char RecurseEQU[]="Recursive EQU not allowed.";
+ char NoENDIF[]="Missing ENDIF.";
+ char NoENDM[]="Missing ENDM.";
+ char NoENDR[]="Missing ENDR.";
+ char NoENDE[]="Missing ENDE.";
++char NoENDINL[]="Missing ENDINL."; // [freem]
+ char IfNestLimit[]="Too many nested IFs.";
+ char undefinedPC[]="PC is undefined (use ORG first)";
+ 
+@@ -333,6 +345,7 @@
+ char *outputfilename=0;
+ char *listfilename=0;
+ int verboselisting=0;//expand REPT loops in listing
++int genfceuxnl=0;//generate FCEUX .nl files for symbolic debugging [freem]
+ const char *listerr=0;//error message for list file
+ label *labelhere;//points to the label being defined on the current line (for EQU, =, etc)
+ FILE *listfile=0;
+@@ -347,6 +360,7 @@
+ int labelend;//index of last label
+ label *lastlabel;//last label created
+ int nooutput=0;//supress output (use with ENUM)
++int nonl=0;//supress output to .nl files (use with IGNORENL) [freem]
+ int defaultfiller;//default fill value
+ int insidemacro=0;//macro/rept is being expanded
+ int verbose=1;
+@@ -973,6 +987,83 @@
+ }
+ 
+ //===========================================================================================================
++/* new routine, primarily by sonder, with small changes by freem */
++void export_labelfiles() {
++    // iterate through all the labels and output FCEUX-compatible label info files
++    // based on their type (LABEL's,EQUATE's,VALUE's), address (ram/rom), and position (bank)
++
++    int i;
++    int bank;
++    label *l;
++    char str[512];
++    char filename[512];
++    FILE* bankfiles[64];
++    FILE* ramfile;
++    char outputstem[256];
++    char *strptr;
++
++    for(i=0;i<64;i++){ bankfiles[i]=0; }
++
++    // ram file: <output>.ram.nl
++    // bank files: <output>.bank#hex.nl
++
++    strcpy(filename, outputfilename);
++
++    strptr=strrchr(filename,'.'); // strptr ='.'ptr
++    if(strptr) if(strchr( strptr,'\\' )) strptr = 0; // watch out for "dirname.ext\listfile"
++    if(!strptr) strptr = filename + strlen(str); // strptr -> inputfile extension
++    strcpy(strptr, ".nes.ram.nl");
++
++    ramfile=fopen(filename, "w");
++
++    // the bank files are created ad-hoc before being written to.
++
++    // iNES banks are 16kb. Subtracting the 16 byte header and dividing that by
++    // 16384 will get us the bank number of a particular label.
++    // this only applies to labels that are $8000 and up.
++    // Anything below $8000 is assumed to be RAM.
++
++    // todo: include EQUATES for other registers and variables
++
++    for(i=labelstart;i<labelend;i++){
++        l=labellist[i];
++
++        // handle IGNORENL'd labels [freem]
++        if((*l).ignorenl)
++            continue;
++
++        if( 
++            (
++                (*l).type==LABEL ||
++                (((*l).type==EQUATE || (*l).type==VALUE) && strlen((*l).name) > 1)
++            )
++                && (*l).value < 0x10000
++        ){
++            sprintf(str,"$%04X#%s#\n",(*l).value,(*l).name);
++            // puts(str);
++
++            if((*l).value < 0x8000){
++                // RAM
++                fwrite((const void *)str,1,strlen(str),ramfile);
++            }
++            else{
++                // ROM
++                bank=(((*l).pos - 16)/16384);
++                if (!bankfiles[bank]){
++                    sprintf(strptr,".nes.%X.nl",bank);
++                    bankfiles[bank]=fopen(filename,"w");
++                }
++                fwrite((const void *)str,1,strlen(str),bankfiles[bank]);
++            }
++        }
++    }
++
++    fclose ( ramfile );
++
++    for(i=0;i<64;i++){
++        if(bankfiles[i]) fclose(bankfiles[i]);
++    }
++}
+ 
+ //local:
+ //  false: if label starts with LOCALCHAR, make it local, otherwise it's global
+@@ -995,6 +1086,8 @@
+         (*labelhere).value=addr;
+         (*labelhere).line=ptr_from_bool(addr>=0);
+         (*labelhere).used=0;
++        (*labelhere).pos=filepos; // [sonder]
++        (*labelhere).ignorenl=nonl; // [freem]
+         if(c==LOCALCHAR || local) { //local
+             (*labelhere).scope=scope;
+         } else {        //global
+@@ -1017,6 +1110,7 @@
+                         errmsg=BadAddr;
+                 }
+                 (*p).value=addr;
++                (*p).pos=filepos; // [sonder]
+                 (*p).line=ptr_from_bool(addr>=0);
+                 if(lastchance && addr<0)
+                     errmsg=BadAddr;
+@@ -1209,6 +1303,8 @@
+             errmsg=NoENDM;
+         if(nooutput)
+             errmsg=NoENDE;
++        if(nonl) // [freem]
++            errmsg=NoENDINL;
+         if(errmsg)
+             showerror(name,nline);
+     }
+@@ -1339,6 +1435,7 @@
+     puts("    -L          create verbose listing (expand REPT, MACRO)");
+     puts("    -d<name>    define symbol");
+     puts("    -q          quiet mode (no output unless error)\n");
++    puts("    -n          export FCEUX-compatible .nl files\n"); // [freem]
+     puts("See README.TXT for more info.\n");
+ }
+ 
+@@ -1384,6 +1481,9 @@
+                 case 'q':
+                     verbose = 0;
+                     break;
++                case 'n': // [freem]
++                    genfceuxnl = 0;
++                    break;
+                 default:
+                     fatal_error("unknown option: %s",argv[i]);
+             }
+@@ -1431,6 +1531,7 @@
+     //main assembly loop:
+     p=0;
+     do {
++        filepos=0; // [sonder]
+         pass++;
+         if(pass==MAXPASSES || (p==lastlabel))
+             lastchance=1;//give up on too many tries or no progress made
+@@ -1478,6 +1579,8 @@
+     }
+     if(listfile)
+         listline(0,0);
++    if(genfceuxnl) // [freem]
++        export_labelfiles(); // [sonder]
+     return error ? EXIT_FAILURE : 0;
+ }
+ 
+@@ -1495,6 +1598,7 @@
+         return;
+     }*/
+     addr+=size;
++    filepos+=size; // [sonder]
+ 
+     if(nooutput)
+         return;
+@@ -2178,6 +2282,21 @@
+     }
+ }
+ 
++// [freem]
++void ignorenl(label *id, char **next) {
++    nonl=1;
++}
++
++// [freem]
++// [freem addition]
++void endinl(label *id, char **next) {
++    if(nonl){
++        nonl=0;
++    } else {
++        errmsg=ExtraENDINL;
++    }
++}
++
+ void fillval(label *id,char **next) {
+     dependant=0;
+     defaultfiller=eval(next,WHOLEEXP);

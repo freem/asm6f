@@ -1,0 +1,77 @@
+--- asm6.c	2010-11-03 09:22:30.000000000 -0500
++++ asm6-undoc.c	2016-05-08 23:16:59.372308022 -0500
+@@ -189,7 +189,40 @@
+ byte nop[]={0xea,IMP,-1};
+ byte beq[]={0xf0,REL,-1};
+ byte sed[]={0xf8,IMP,-1};
+- 
++
++/* Undocumented/Illegal Opcodes (NMOS 6502 only!) */
++// names/information taken from http://www.oxyron.de/html/opcodes02.html
++
++byte slo[]={0x07,ZP,0x17,ZPX,0x03,INDX,0x13,INDY,0x0f,ABS,0x1F,ABSX,0x1B,ABSY,-1};
++byte rla[]={0x27,ZP,0x37,ZPX,0x23,INDX,0x33,INDY,0x2f,ABS,0x3f,ABSX,0x3b,ABSY,-1};
++byte sre[]={0x47,ZP,0x57,ZPX,0x43,INDX,0x53,INDY,0x4f,ABS,0x5f,ABSX,0x5b,ABSY,-1};
++byte rra[]={0x67,ZP,0x77,ZPX,0x63,INDX,0x73,INDY,0x6f,ABS,0x7f,ABSX,0x7b,ABSY,-1};
++byte sax[]={0x87,ZP,0x97,ZPY,0x83,INDX,0x8f,ABS,-1};
++byte lax[]={0xa7,ZP,0xb7,ZPY,0xa3,INDX,0xb3,INDY,0xaf,ABS,0xbf,ABSY,-1};
++byte dcp[]={0xc7,ZP,0xd7,ZPX,0xc3,INDX,0xd3,INDY,0xcf,ABS,0xdf,ABSX,0xdb,ABSY,-1};
++byte isc[]={0xe7,ZP,0xf7,ZPX,0xe3,INDX,0xf3,INDY,0xef,ABS,0xff,ABSX,0xfb,ABSY,-1};
++
++byte anc[]={0x0b,IMM,-1}; // has duplicate at 0x2b
++
++byte alr[]={0x4b,IMM,-1};
++byte arr[]={0x6b,IMM,-1};
++byte axs[]={0xcb,IMM,-1};
++byte las[]={0xbb,ABSY,-1};
++
++#ifdef UNSTABLE_INSTR
++// "unstable in certain matters":
++byte ahx[]={0x93,INDY,0x9f,ABSY,-1};
++byte shy[]={0x9c,ABSX,-1};
++byte shx[]={0x9e,ABSY,-1};
++byte tas[]={0x9b,ABSY,-1};
++#endif
++
++#ifdef HIGHLY_UNSTABLE_INSTR
++// "highly unstable (results are not predictable on some machines)":
++byte xaa[]={0x8b,IMM,-1};
++//byte lax[]={0xab,IMM,-1};
++#endif
++
+ void *rsvdlist[]={       //all reserved words
+         "BRK",brk,
+         "PHP",php,
+@@ -247,6 +280,32 @@
+         "STX",stx,
+         "DEC",dec,
+         "INC",inc,
++        /* begin undocumented/illegal opcodes */
++        "SLO",slo,
++        "RLA",rla,
++        "SRE",sre,
++        "RRA",rra,
++        "SAX",sax,
++        "LAX",lax,
++        "DCP",dcp,
++        "ISC",isc,
++        "ANC",anc,
++        "ALR",alr,
++        "ARR",arr,
++        "AXS",axs,
++        "LAS",las,
++        /* somewhat unstable instructions */
++#ifdef UNSTABLE_INSTR
++        "AHX",ahx,
++        "SHY",shy,
++        "SHX",shx,
++        "TAS",tas,
++#endif
++        /* highly unstable instructions */
++#ifdef HIGHLY_UNSTABLE_INSTR
++        "XAA",xaa,
++#endif
++        /* end list */
+         0, 0
+ };
+ 
