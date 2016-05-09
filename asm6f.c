@@ -1377,6 +1377,9 @@ void processfile(FILE *f, char* name) {
 			errmsg=NoENDM;
 		if(nooutput)
 			errmsg=NoENDE;
+		// [freem addition]
+		if(nonl)
+            errmsg=NoENDINL;
 		if(errmsg)
 			showerror(name,nline);
 	}
