@@ -12,7 +12,7 @@ asm6-undoc.diff (freem)
   - Highly unstable instructions (xaa) are behind another compile-time flag (HIGHLY_UNSTABLE_INSTR)
   - You can define both UNSTABLE_INSTR and HIGHLY_UNSTABLE_INSTR at the same time.
 
-asm6-fceuxnl.diff (originally by sonder, with additions by freem)
+asm6-fceuxnl.diff (originally by sonder, with additions by freem) - NOT YET COMPLETE, SORRY!
   Outputs FCEUX-compatible *.nl symbol files.
   Originally by sonder for ASM6 v1.51.
   Source: http://forums.nesdev.com/viewtopic.php?f=2&t=9276&start=15#p117056
