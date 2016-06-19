@@ -10,6 +10,7 @@
 ; <drnick> removing the REPT makes it work, so REPT inside a MACRO is the source of error
 
 ORG 0
+;i=0 ; [new, from freem] uncommenting this line fixes it, somehow.
 MACRO makeTbl
     i=0
     REPT 8
@@ -18,3 +19,4 @@ MACRO makeTbl
     ENDR
 ENDM
 makeTbl
+
