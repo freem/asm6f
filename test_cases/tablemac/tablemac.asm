@@ -11,10 +11,10 @@
 
 ORG 0
 MACRO makeTbl
-    counter=0
+    i=0
     REPT 8
-        DB counter
-        counter=counter+1
+        DB i
+        i=i+1
     ENDR
 ENDM
 makeTbl
