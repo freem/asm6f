@@ -91,6 +91,18 @@ label firstlabel={		  //'$' label
 typedef unsigned char byte;
 typedef void (*icfn)(label*,char**);
 
+//[nicklausw] ines stuff
+int ines_include = 0;
+int inesprg_num  = 0;
+int ineschr_num  = 0;
+int inesmir_num  = 0;
+int inesmap_num  = 0;
+
+void inesprg(label*, char**);
+void ineschr(label*, char**);
+void inesmir(label*, char**);
+void inesmap(label*, char**);
+
 label *findlabel(char*);
 void initlabels();
 label *newlabel();
@@ -363,6 +375,10 @@ struct {
 		"DL",dl,
 		"DH",dh,
 		"ERROR",make_error,
+		"INESPRG",inesprg,
+        "INESCHR",ineschr,
+        "INESMIR",inesmir,
+        "INESMAP",inesmap,
 		0, 0
 };
 
@@ -1709,6 +1725,13 @@ void output(byte *p,int size) {
 			errmsg="Can't create output file.";
 			return;
 		}
+
+        // (insert iNES if needed)
+        if (ines_include) {
+            byte ineshdr[16] = {'N','E','S',0x1A,(byte)inesprg_num, (byte)ineschr_num, (byte)(inesmap_num << 4) | inesmir_num, (byte)inesmap_num & 0xF0,0,0,0,0,0,0,0,0};
+            if ( fwrite(ineshdr,1,16,outputfile) < (size_t)16 || fflush( outputfile ) )
+                errmsg="Write error.";
+        }
 	}
 	if(!outputfile) return;
 	while(size--) {
@@ -2406,4 +2429,26 @@ void make_error(label *id,char **next) {
 	errmsg=s;
 	error=1;
 	*next=s+strlen(s);
+}
+
+//[nicklausw] ines stuff
+
+void inesprg(label *id, char **next) {
+    inesprg_num=eval(next, WHOLEEXP);
+    ines_include++;
+}
+
+void ineschr(label *id, char **next) {
+    ineschr_num=eval(next, WHOLEEXP);
+    ines_include++;
+}
+
+void inesmir(label *id, char **next) {
+    inesmir_num=eval(next, WHOLEEXP);
+    ines_include++;
+}
+
+void inesmap(label *id, char **next) {
+    inesmap_num=eval(next, WHOLEEXP);
+    ines_include++;
 }
