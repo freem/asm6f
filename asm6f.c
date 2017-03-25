@@ -376,9 +376,9 @@ struct {
 		"DH",dh,
 		"ERROR",make_error,
 		"INESPRG",inesprg,
-        "INESCHR",ineschr,
-        "INESMIR",inesmir,
-        "INESMAP",inesmap,
+		"INESCHR",ineschr,
+		"INESMIR",inesmir,
+		"INESMAP",inesmap,
 		0, 0
 };
 
@@ -1395,7 +1395,7 @@ void processfile(FILE *f, char* name) {
 			errmsg=NoENDE;
 		// [freem addition]
 		if(nonl)
-            errmsg=NoENDINL;
+			errmsg=NoENDINL;
 		if(errmsg)
 			showerror(name,nline);
 	}
@@ -1726,12 +1726,12 @@ void output(byte *p,int size) {
 			return;
 		}
 
-        // (insert iNES if needed)
-        if (ines_include) {
-            byte ineshdr[16] = {'N','E','S',0x1A,(byte)inesprg_num, (byte)ineschr_num, (byte)(inesmap_num << 4) | inesmir_num, (byte)inesmap_num & 0xF0,0,0,0,0,0,0,0,0};
-            if ( fwrite(ineshdr,1,16,outputfile) < (size_t)16 || fflush( outputfile ) )
-                errmsg="Write error.";
-        }
+		// (insert iNES if needed)
+		if (ines_include) {
+			byte ineshdr[16] = {'N','E','S',0x1A,(byte)inesprg_num, (byte)ineschr_num, (byte)(inesmap_num << 4) | inesmir_num, (byte)inesmap_num & 0xF0,0,0,0,0,0,0,0,0};
+			if ( fwrite(ineshdr,1,16,outputfile) < (size_t)16 || fflush( outputfile ) )
+				errmsg="Write error.";
+		}
 	}
 	if(!outputfile) return;
 	while(size--) {
@@ -2434,21 +2434,21 @@ void make_error(label *id,char **next) {
 //[nicklausw] ines stuff
 
 void inesprg(label *id, char **next) {
-    inesprg_num=eval(next, WHOLEEXP);
-    ines_include++;
+	inesprg_num=eval(next, WHOLEEXP);
+	ines_include++;
 }
 
 void ineschr(label *id, char **next) {
-    ineschr_num=eval(next, WHOLEEXP);
-    ines_include++;
+	ineschr_num=eval(next, WHOLEEXP);
+	ines_include++;
 }
 
 void inesmir(label *id, char **next) {
-    inesmir_num=eval(next, WHOLEEXP);
-    ines_include++;
+	inesmir_num=eval(next, WHOLEEXP);
+	ines_include++;
 }
 
 void inesmap(label *id, char **next) {
-    inesmap_num=eval(next, WHOLEEXP);
-    ines_include++;
+	inesmap_num=eval(next, WHOLEEXP);
+	ines_include++;
 }
