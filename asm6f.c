@@ -98,10 +98,22 @@ int ineschr_num  = 0;
 int inesmir_num  = 0;
 int inesmap_num  = 0;
 
+int nes2chr_num = 0;
+int nes2prg_num = 0;
+int nes2sub_num = 0;
+int nes2tv_num = 0;
+int nes2vs_num = 0;
+
 void inesprg(label*, char**);
 void ineschr(label*, char**);
 void inesmir(label*, char**);
 void inesmap(label*, char**);
+
+void nes2chrram(label*, char**);
+void nes2prgram(label*, char**);
+void nes2sub(label*, char**);
+void nes2tv(label*, char**);
+void nes2vs(label*, char**);
 
 label *findlabel(char*);
 void initlabels();
@@ -379,6 +391,11 @@ struct {
 		"INESCHR",ineschr,
 		"INESMIR",inesmir,
 		"INESMAP",inesmap,
+		"NES2CHRRAM",nes2chrram,
+		"NES2PRGRAM",nes2prgram,
+		"NES2SUB",nes2sub,
+		"NES2TV",nes2tv,
+		"NES2VS",nes2vs,
 		0, 0
 };
 
@@ -1728,7 +1745,12 @@ void output(byte *p,int size) {
 
 		// (insert iNES if needed)
 		if (ines_include) {
-			byte ineshdr[16] = {'N','E','S',0x1A,(byte)inesprg_num, (byte)ineschr_num, (byte)(inesmap_num << 4) | inesmir_num, (byte)inesmap_num & 0xF0,0,0,0,0,0,0,0,0};
+			byte ineshdr[16] = {'N','E','S',0x1A,
+								(byte)inesprg_num,
+								(byte)ineschr_num,
+								(byte)(inesmap_num << 4) | inesmir_num,
+								(byte)inesmap_num & 0xF0,
+								0,0,0,0,0,0,0,0};
 			if ( fwrite(ineshdr,1,16,outputfile) < (size_t)16 || fflush( outputfile ) )
 				errmsg="Write error.";
 		}
@@ -2450,5 +2472,30 @@ void inesmir(label *id, char **next) {
 
 void inesmap(label *id, char **next) {
 	inesmap_num=eval(next, WHOLEEXP);
+	ines_include++;
+}
+
+void nes2chrram(label *id, char **next) {
+	nes2chr_num=eval(next, WHOLEEXP);
+	ines_include++;
+}
+
+void nes2prgram(label *id, char **next) {
+	nes2prg_num=eval(next, WHOLEEXP);
+	ines_include++;
+}
+
+void nes2sub(label *id, char **next) {
+	nes2sub_num=eval(next, WHOLEEXP);
+	ines_include++;
+}
+
+void nes2tv(label *id, char **next) {
+	nes2tv_num=eval(next, WHOLEEXP);
+	ines_include++;
+}
+
+void nes2vs(label *id, char **next) {
+	nes2vs_num=eval(next, WHOLEEXP);
 	ines_include++;
 }
