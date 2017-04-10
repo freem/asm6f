@@ -2457,21 +2457,38 @@ void make_error(label *id,char **next) {
 
 void inesprg(label *id, char **next) {
 	inesprg_num=eval(next, WHOLEEXP);
+
+	if(inesprg_num < 0 || inesprg_num > 0xFF)
+		errmsg=OutOfRange;
+	
 	ines_include++;
 }
 
 void ineschr(label *id, char **next) {
 	ineschr_num=eval(next, WHOLEEXP);
+
+	if(ineschr_num < 0 || ineschr_num > 0xFF)
+		errmsg=OutOfRange;
+	
 	ines_include++;
 }
 
 void inesmir(label *id, char **next) {
 	inesmir_num=eval(next, WHOLEEXP);
+
+	//force 4 bits
+	if(inesmir_num > 16 || inesmir_num < 0)
+		errmsg=OutOfRange;
+	
 	ines_include++;
 }
 
 void inesmap(label *id, char **next) {
 	inesmap_num=eval(next, WHOLEEXP);
+
+	if(inesmap_num > 254 || inesmap_num < 0)
+		errmsg=OutOfRange;
+	
 	ines_include++;
 }
 
