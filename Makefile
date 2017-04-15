@@ -6,23 +6,14 @@ ifneq ($(shell echo),)
   DOTEXE=.exe
 endif
 
-UNSTABLE_INSTR=-DUNSTABLE_INSTR
-HIGHLY_UNSTABLE_INSTR=-DHIGHLY_UNSTABLE_INSTR
-
 .PHONY: all clean
 
-all: safe unstable highlyunstable
+all: safe
 
 safe:
 	$(CC) asm6f.c -o asm6f
 
-unstable:
-	$(CC) asm6f.c $(UNSTABLE_INSTR) -o asm6f-unstable
-
-highlyunstable:
-	$(CC) asm6f.c $(UNSTABLE_INSTR) $(HIGHLY_UNSTABLE_INSTR) -o asm6f-hunstable
-
 # sorry to linux people for forcing .exe but I can't get this makefile to determine
 # that I'm really on windows
 clean:
-	$(RM) asm6f$(DOTEXE) asm6f-unstable$(DOTEXE) asm6f-hunstable$(DOTEXE) *.exe
+	$(RM) asm6f$(DOTEXE) *.exe
