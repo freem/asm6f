@@ -98,10 +98,29 @@ int ineschr_num  = 0;
 int inesmir_num  = 0;
 int inesmap_num  = 0;
 
+int use_nes2 = 0;
+int nes2chr_num = 0;
+int nes2prg_num = 0;
+int nes2sub_num = 0;
+int nes2tv_num = 0;
+int nes2vs_num = 0;
+int nes2wram_num = 0;
+int nes2bram_num = 0;
+int nes2chrbram_num = 0;
+
 void inesprg(label*, char**);
 void ineschr(label*, char**);
 void inesmir(label*, char**);
 void inesmap(label*, char**);
+
+void nes2chrram(label*, char**);
+void nes2prgram(label*, char**);
+void nes2sub(label*, char**);
+void nes2tv(label*, char**);
+void nes2vs(label*, char**);
+void nes2wram(label*, char**);
+void nes2bram(label*, char**);
+void nes2chrbram(label*, char**);
 
 label *findlabel(char*);
 void initlabels();
@@ -379,6 +398,14 @@ struct {
 		"INESCHR",ineschr,
 		"INESMIR",inesmir,
 		"INESMAP",inesmap,
+		"NES2CHRRAM",nes2chrram,
+		"NES2PRGRAM",nes2prgram,
+		"NES2SUB",nes2sub,
+		"NES2TV",nes2tv,
+		"NES2VS",nes2vs,
+		"NES2WRAM",nes2wram,
+		"NES2BRAM",nes2bram,
+		"NES2CHRBRAM",nes2chrbram,
 		0, 0
 };
 
@@ -1728,7 +1755,17 @@ void output(byte *p,int size) {
 
 		// (insert iNES if needed)
 		if (ines_include) {
-			byte ineshdr[16] = {'N','E','S',0x1A,(byte)inesprg_num, (byte)ineschr_num, (byte)(inesmap_num << 4) | inesmir_num, (byte)inesmap_num & 0xF0,0,0,0,0,0,0,0,0};
+			byte ineshdr[16] = {'N','E','S',0x1A,
+								(byte)inesprg_num,
+								(byte)ineschr_num,
+								(byte)(inesmap_num << 4) | inesmir_num,
+								(byte)(inesmap_num & 0xF0) | (use_nes2 << 3),
+								(byte)(inesmap_num >> 8) + (nes2sub_num << 4),
+								(byte)(inesprg_num >> 8) + ((ineschr_num >> 8) << 4),
+								(byte)(nes2bram_num << 4) | nes2prg_num,
+								(byte)(nes2chrbram_num << 4) | nes2chr_num,
+								(byte)nes2tv_num,
+								0,0,0};
 			if ( fwrite(ineshdr,1,16,outputfile) < (size_t)16 || fflush( outputfile ) )
 				errmsg="Write error.";
 		}
@@ -2435,20 +2472,89 @@ void make_error(label *id,char **next) {
 
 void inesprg(label *id, char **next) {
 	inesprg_num=eval(next, WHOLEEXP);
+
+	if(inesprg_num < 0 || inesprg_num > 0xFF)
+		errmsg=OutOfRange;
+	
 	ines_include++;
 }
 
 void ineschr(label *id, char **next) {
 	ineschr_num=eval(next, WHOLEEXP);
+
+	if(ineschr_num < 0 || ineschr_num > 0xFF)
+		errmsg=OutOfRange;
+	
 	ines_include++;
 }
 
 void inesmir(label *id, char **next) {
 	inesmir_num=eval(next, WHOLEEXP);
+
+	//force 4 bits
+	if(inesmir_num > 16 || inesmir_num < 0)
+		errmsg=OutOfRange;
+	
 	ines_include++;
 }
 
 void inesmap(label *id, char **next) {
 	inesmap_num=eval(next, WHOLEEXP);
+
+	//ines 2.0 allows for some big numbers...
+	if(inesmap_num > 4095 || inesmap_num < 0)
+		errmsg=OutOfRange;
+	
 	ines_include++;
+}
+
+void nes2chrram(label *id, char **next) {
+	nes2chr_num=eval(next, WHOLEEXP);
+	ines_include++; use_nes2 = 1;
+}
+
+void nes2prgram(label *id, char **next) {
+	nes2prg_num=eval(next, WHOLEEXP);
+	ines_include++; use_nes2 = 1;
+}
+
+void nes2sub(label *id, char **next) {
+	nes2sub_num=eval(next, WHOLEEXP);
+	ines_include++; use_nes2 = 1;
+}
+
+void nes2tv(label *id, char **next) {
+	nes2tv_num=eval(next, WHOLEEXP);
+
+	// possible presets...
+	if(nes2tv_num == 'N') nes2tv_num = 0;
+	if (nes2tv_num == 'P') nes2tv_num = 1;
+
+	// might just change to 'N', 'P' but eh...
+	if (nes2tv_num == 'B') nes2tv_num = 2;
+
+	if(nes2tv_num > 2 || nes2tv_num < 0)
+		errmsg=OutOfRange;
+	
+	ines_include++; use_nes2 = 1;
+}
+
+void nes2vs(label *id, char **next) {
+	nes2vs_num=eval(next, WHOLEEXP);
+	ines_include++; use_nes2 = 1;
+}
+
+void nes2wram(label *id, char **next) {
+	nes2wram_num=eval(next, WHOLEEXP);
+	ines_include++; use_nes2 = 1;
+}
+
+void nes2bram(label *id, char **next) { 
+	nes2bram_num=eval(next, WHOLEEXP);
+	ines_include++; use_nes2 = 1;
+}
+
+void nes2chrbram(label *id, char **next) {
+	nes2chrbram_num=eval(next, WHOLEEXP);
+	ines_include++; use_nes2 = 1;
 }
