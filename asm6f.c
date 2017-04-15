@@ -118,7 +118,6 @@ void nes2prgram(label*, char**);
 void nes2sub(label*, char**);
 void nes2tv(label*, char**);
 void nes2vs(label*, char**);
-void nes2wram(label*, char**);
 void nes2bram(label*, char**);
 void nes2chrbram(label*, char**);
 
@@ -403,7 +402,6 @@ struct {
 		"NES2SUB",nes2sub,
 		"NES2TV",nes2tv,
 		"NES2VS",nes2vs,
-		"NES2WRAM",nes2wram,
 		"NES2BRAM",nes2bram,
 		"NES2CHRBRAM",nes2chrbram,
 		0, 0
@@ -1759,9 +1757,9 @@ void output(byte *p,int size) {
 								(byte)inesprg_num,
 								(byte)ineschr_num,
 								(byte)(inesmap_num << 4) | inesmir_num,
-								(byte)(inesmap_num & 0xF0) | (use_nes2 << 3),
-								(byte)(inesmap_num >> 8) + (nes2sub_num << 4),
-								(byte)(inesprg_num >> 8) + ((ineschr_num >> 8) << 4),
+								(byte)(inesmap_num & 0xF0) | (use_nes2 << 3) | (nes2tv_num << 7),
+								(byte)(inesmap_num >> 8) | (nes2sub_num << 4),
+								(byte)(inesprg_num >> 8) | ((ineschr_num >> 8) << 4),
 								(byte)(nes2bram_num << 4) | nes2prg_num,
 								(byte)(nes2chrbram_num << 4) | nes2chr_num,
 								(byte)nes2tv_num,
@@ -2510,16 +2508,28 @@ void inesmap(label *id, char **next) {
 
 void nes2chrram(label *id, char **next) {
 	nes2chr_num=eval(next, WHOLEEXP);
+
+	if (nes2chr_num < 0 || nes2chr_num > 16)
+		errmsg=OutOfRange;
+	
 	ines_include++; use_nes2 = 1;
 }
 
 void nes2prgram(label *id, char **next) {
 	nes2prg_num=eval(next, WHOLEEXP);
+
+	if (nes2prg_num < 0 || nes2prg_num > 16)
+		errmsg=OutOfRange;
+	
 	ines_include++; use_nes2 = 1;
 }
 
 void nes2sub(label *id, char **next) {
 	nes2sub_num=eval(next, WHOLEEXP);
+
+	if (nes2sub_num < 0 || nes2sub_num > 16)
+		errmsg=OutOfRange;
+	
 	ines_include++; use_nes2 = 1;
 }
 
@@ -2540,21 +2550,24 @@ void nes2tv(label *id, char **next) {
 }
 
 void nes2vs(label *id, char **next) {
-	nes2vs_num=eval(next, WHOLEEXP);
-	ines_include++; use_nes2 = 1;
-}
-
-void nes2wram(label *id, char **next) {
-	nes2wram_num=eval(next, WHOLEEXP);
+	nes2vs_num = 1;
 	ines_include++; use_nes2 = 1;
 }
 
 void nes2bram(label *id, char **next) { 
 	nes2bram_num=eval(next, WHOLEEXP);
+
+	if (nes2bram_num < 0 || nes2bram_num > 16)
+		errmsg=OutOfRange;
+	
 	ines_include++; use_nes2 = 1;
 }
 
 void nes2chrbram(label *id, char **next) {
 	nes2chrbram_num=eval(next, WHOLEEXP);
+
+	if (nes2chrbram_num < 0 || nes2chrbram_num > 16)
+		errmsg=OutOfRange;
+	
 	ines_include++; use_nes2 = 1;
 }
