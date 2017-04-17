@@ -91,6 +91,10 @@ label firstlabel={		  //'$' label
 typedef unsigned char byte;
 typedef void (*icfn)(label*,char**);
 
+//unstable instruction allowance
+int allowunstable = 0;
+int allowhunstable = 0;
+
 //[nicklausw] ines stuff
 int ines_include = 0;
 int inesprg_num  = 0;
@@ -168,6 +172,8 @@ void fillval(label*,char**);
 void expandmacro(label*,char**,int,char*);
 void expandrept(int,char*);
 void make_error(label*,char**);
+void unstable(label*,char**);
+void hunstable(label*,char**);
 
 // [freem addition (from asm6_sonder.c)]
 int filepos=0;
@@ -253,19 +259,15 @@ byte arr[]={0x6b,IMM,-1};
 byte axs[]={0xcb,IMM,-1};
 byte las[]={0xbb,ABSY,-1};
 
-#ifdef UNSTABLE_INSTR
 // "unstable in certain matters":
 byte ahx[]={0x93,INDY,0x9f,ABSY,-1};
 byte shy[]={0x9c,ABSX,-1};
 byte shx[]={0x9e,ABSY,-1};
 byte tas[]={0x9b,ABSY,-1};
-#endif
 
-#ifdef HIGHLY_UNSTABLE_INSTR
 // "highly unstable (results are not predictable on some machines)":
 byte xaa[]={0x8b,IMM,-1};
 //byte lax[]={0xab,IMM,-1};
-#endif
  
 void *rsvdlist[]={	   //all reserved words
 		"BRK",brk,
@@ -341,20 +343,20 @@ void *rsvdlist[]={	   //all reserved words
 		"LAS",las,
 
 		/* somewhat unstable instructions */
-#ifdef UNSTABLE_INSTR
 		"AHX",ahx,
 		"SHY",shy,
 		"SHX",shx,
 		"TAS",tas,
-#endif
 
 		/* highly unstable instructions */
-#ifdef HIGHLY_UNSTABLE_INSTR
 		"XAA",xaa,
-#endif
 
 		/* end list */
 		0, 0
+};
+
+char *unstablelist[]={
+	"AHX", "SHY", "SHX", "TAS"
 };
 
 struct {
@@ -404,6 +406,8 @@ struct {
 		"NES2VS",nes2vs,
 		"NES2BRAM",nes2bram,
 		"NES2CHRBRAM",nes2chrbram,
+		"UNSTABLE",unstable,
+		"HUNSTABLE",hunstable,
 		0, 0
 };
 
@@ -2118,6 +2122,21 @@ void opcode(label *id, char **next) {
 	byte *op;
 	int oldstate=needanotherpass;
 	int forceRel = 0;
+    
+	int uns;
+	if (!allowunstable) {
+		for(uns=0;uns<4;uns++) {
+			if (!strcmp((*id).name, unstablelist[uns])) {
+				fatal_error("Unstable instruction without calling UNSTABLE.");
+			}
+		}
+	}
+
+	if (!allowhunstable) {
+		if (!strcmp((*id).name, "XAA")) {
+			fatal_error("Highly unstable instruction without calling HUNSTABLE.");
+		}
+	}
 		
 	for(op=(byte*)(*id).line;*op!=0xff;op+=2) {//loop through all addressing modes for this instruction
 		needanotherpass=oldstate;
@@ -2464,6 +2483,15 @@ void make_error(label *id,char **next) {
 	errmsg=s;
 	error=1;
 	*next=s+strlen(s);
+}
+
+void unstable(label *id, char **next) {
+	allowunstable++;
+}
+
+void hunstable(label *id, char **next) {
+	allowunstable++;
+	allowhunstable++;
 }
 
 //[nicklausw] ines stuff
