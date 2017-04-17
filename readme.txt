@@ -14,6 +14,7 @@ Features compared to stock ASM6
 * Code from sonder's fork of ASM6 to allow output of FCEUX-compatible .nl files.
 * New directives "IGNORENL" and "ENDINL".
   These two are used for ignoring certain defines when using the -n option.
+* Support for iNES original and 2.0 header insertion.
 
 --------------------------------------------------------------
 Command line
@@ -183,6 +184,46 @@ IGNORENL/ENDINL
                 PAD_LEFT   = %00000010
                 PAD_RIGHT  = %00000001
                 ENDINL
+
+--------------------------------------------------------------
+iNES directives
+--------------------------------------------------------------
+
+Note that using an iNES header is optional; it's only inserted
+if at least one of these following directives is used.
+
+INESPRG x
+        Number of PRG ROM banks in a NES ROM.
+
+INESCHR x
+        Number of CHR ROM banks in a NES ROM.
+
+INESMAP x
+        Mapper number of NES ROM.
+
+INESMIR x
+        Mirroring mode of a NES ROM.
+
+NES2CHRRAM x
+        Amount of CHR RAM used by a NES ROM.
+
+NES2PRGRAM x
+        Amount of PRG RAM used by a NES ROM.
+
+NES2SUB x
+        Submapper number of NES ROM.
+
+NES2TV x
+        TV mode of NES ROM: NTSC, PAL, or both (0, 1 or 2) ('N', 'P' or 'B')
+
+NES2VS
+        Sets ROM to use the Vs. Unisystem.
+
+NES2BRAM x
+        Amount of battery-packed PRG RAM in NES ROM.
+
+NES2CHRBRAM x
+        Amount of battery-packed CHR RAM in NES ROM.
 
 --------------------------------------------------------------
 loopy's original To-Do List
