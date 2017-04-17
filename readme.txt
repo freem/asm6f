@@ -10,7 +10,7 @@ Yes, it's another fork of ASM6.
 Features compared to stock ASM6
 --------------------------------------------------------------
 * Support for some illegal/undocumented opcodes.
-  (Note: Support for unstable opcodes requires compile flags.)
+  (Note: Support for unstable opcodes requires use of directives.)
 * Code from sonder's fork of ASM6 to allow output of FCEUX-compatible .nl files.
 * New directives "IGNORENL" and "ENDINL".
   These two are used for ignoring certain defines when using the -n option.
@@ -41,7 +41,8 @@ readme-original.txt for more information.
 Supported Undocumented Opcodes
 --------------------------------------------------------------
 asm6f supports the use of a number of undocumented/"illegal" opcodes.
-Unstable opcodes will require usage of the directives UNSTABLE and HUNSTABLE (see below).
+Unstable opcodes require the use of the "UNSTABLE" and/or "HUNSTABLE"
+directives, or an error will be thrown.
 
 Information about these opcodes was sourced from Graham's 6502 Opcode document:
 http://www.oxyron.de/html/opcodes02.html
@@ -120,7 +121,7 @@ las
         One source (which?) calls las "probably unreliable".
 
 [Unstable]
-"unstable in certain matters"; requires UNSTABLE_INSTR flag at compile time.
+"unstable in certain matters"; requires UNSTABLE directive.
 
 ahx (A&H&X)
 
@@ -151,7 +152,7 @@ tas
 "DO NOT USE!!!", "results are not predictable on some machines".
 YOU HAVE BEEN WARNED.
 
-requires HIGHLY_UNSTABLE_INSTR flag at compile time.
+requires HUNSTABLE directive.
 
 xaa (X And A) HIGHLY UNSTABLE!!!
 
@@ -181,11 +182,27 @@ IGNORENL/ENDINL
                 PAD_RIGHT  = %00000001
                 ENDINL
 
+
 UNSTABLE
+
         Enables use of somewhat unstable 6502 opcodes.
 
+                ; use some unstable undocumented instructions
+                ldy #0
+                ldx #1
+                ahx example,y
+                shy example,x
+                shx example,y
+                tas example,y
+
+
 HUNSTABLE
+
         Enables use of highly unstable 6502 opcodes.
+
+                ; throw caution to the wind and use xaa
+                HUNSTABLE
+                xaa #7
 
 --------------------------------------------------------------
 loopy's original To-Do List
@@ -202,7 +219,7 @@ loopy's original To-Do List
 freem's To-Do List
 --------------------------------------------------------------
 * add .undef? (could react badly on other passes)
-* Allow -d option to set the symbols to whatever value instead of 1?
+* Allow -d option to set the symbols to a specific value instead of 1?
 * Ignore defines from command line when using -n
 * add absolute addressing via "a:" (ca65 syntax), if loopy doesn't do it first
  * This could get awkward (e.g. if you have a short label named "a"), so possibly
