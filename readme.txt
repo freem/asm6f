@@ -41,10 +41,7 @@ readme-original.txt for more information.
 Supported Undocumented Opcodes
 --------------------------------------------------------------
 asm6f supports the use of a number of undocumented/"illegal" opcodes.
-Unstable opcodes will require compile flags.
-
-The default "make all" will create three versions of the assembler:
-normal, "unstable", and "hunstable".
+Unstable opcodes will require usage of the directives UNSTABLE and HUNSTABLE (see below).
 
 Information about these opcodes was sourced from Graham's 6502 Opcode document:
 http://www.oxyron.de/html/opcodes02.html
@@ -183,6 +180,12 @@ IGNORENL/ENDINL
                 PAD_LEFT   = %00000010
                 PAD_RIGHT  = %00000001
                 ENDINL
+
+UNSTABLE
+        Enables use of somewhat unstable 6502 opcodes.
+
+HUNSTABLE
+        Enables use of highly unstable 6502 opcodes.
 
 --------------------------------------------------------------
 loopy's original To-Do List
