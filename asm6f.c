@@ -156,6 +156,7 @@ void expandrept(int,char*);
 void make_error(label*,char**);
 void unstable(label*,char**);
 void hunstable(label*,char**);
+void func(label*,char**);
 
 // [freem addition (from asm6_sonder.c)]
 int filepos=0;
@@ -383,6 +384,7 @@ struct {
 		"INESMAP",inesmap,
 		"UNSTABLE",unstable,
 		"HUNSTABLE",hunstable,
+		"FUNC",func,"FUNCTION",func,
 		0, 0
 };
 
@@ -2092,14 +2094,14 @@ void opcode(label *id, char **next) {
 	if (!allowunstable) {
 		for(uns=0;uns<4;uns++) {
 			if (!strcmp((*id).name, unstablelist[uns])) {
-				fatal_error("Unstable instruction without calling UNSTABLE.");
+				fatal_error("Unstable instruction \"%s\" used without calling UNSTABLE.",(*id).name);
 			}
 		}
 	}
 
 	if (!allowhunstable) {
 		if (!strcmp((*id).name, "XAA")) {
-			fatal_error("Highly unstable instruction without calling HUNSTABLE.");
+			fatal_error("Highly unstable instruction \"%s\" used without calling HUNSTABLE.",(*id).name);
 		}
 	}
 		
@@ -2457,6 +2459,10 @@ void unstable(label *id, char **next) {
 void hunstable(label *id, char **next) {
 	allowunstable++;
 	allowhunstable++;
+}
+
+void func(label *id, char **next) {
+
 }
 
 //[nicklausw] ines stuff
