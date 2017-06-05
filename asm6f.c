@@ -1198,7 +1198,7 @@ void export_lua() {
 
 	mainfile=fopen(filename, "w");
 
-	for(i=labelstart;i<labelend;i++){
+	for(i=labelstart;i<=labelend;i++){
 		l=labellist[i];
 
 		if( 
@@ -1206,7 +1206,6 @@ void export_lua() {
 				(*l).type==LABEL ||
 				(((*l).type==EQUATE || (*l).type==VALUE) && strlen((*l).name) > 1)
 			)
-				&& (*l).value < 0x10000
 				// no anonymous labels
 				&& (*l).name[0] != '-'
 				&& (*l).name[0] != '+'
