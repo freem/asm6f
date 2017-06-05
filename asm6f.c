@@ -1589,14 +1589,14 @@ void showhelp(void) {
 	puts("");
 	puts("asm6f " VERSION " (+ freem modifications)\n");
 	puts("Usage:  asm6f [-options] sourcefile [outputfile] [listfile]\n");
-	puts("	-?		  show this help");
-	puts("	-l		  create listing");
-	puts("	-L		  create verbose listing (expand REPT, MACRO)");
-	puts("	-d<name>	define symbol");
-	puts("	-q		  quiet mode (no output unless error)");
+	puts("\t-?\t\tshow this help");
+	puts("\t-l\t\tcreate listing");
+	puts("\t-L\t\tcreate verbose listing (expand REPT, MACRO)");
+	puts("\t-d<name>\tdefine symbol");
+	puts("\t-q\t\tquiet mode (no output unless error)");
 	// [freem addition]
-	puts("	-n		  export FCEUX-compatible .nl files\n");
-	puts("  -f		  export Lua symbol file\n");
+	puts("\t-n\t\texport FCEUX-compatible .nl files");
+	puts("\t-f\t\texport Lua symbol file\n");
 	puts("See README.TXT for more info.\n");
 }
 
