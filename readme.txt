@@ -12,6 +12,7 @@ Features compared to stock ASM6
 * Support for some illegal/undocumented opcodes.
   (Note: Support for unstable opcodes requires use of directives.)
 * Code from sonder's fork of ASM6 to allow output of FCEUX-compatible .nl files.
+* Output of Lua-compatible symbol files.
 * New directives "IGNORENL" and "ENDINL".
   These two are used for ignoring certain defines when using the -n option.
 * Support for iNES original and 2.0 header insertion.
@@ -32,6 +33,7 @@ Options:
         -d<name>:  Define a symbol and make it equal to 1
         -q         Quiet mode (suppress all output unless there's an error)
         -n         export FCEUX-compatible .nl files
+        -f         export Lua symbol file
         Default output is <sourcefile>.bin
         Default listing is <sourcefile>.lst
 

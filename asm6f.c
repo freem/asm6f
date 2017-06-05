@@ -460,6 +460,7 @@ char *outputfilename=0;
 char *listfilename=0;
 int verboselisting=0;//expand REPT loops in listing
 int genfceuxnl=0;//[freem addition] generate FCEUX .nl files for symbolic debugging
+int genlua=0;//generate lua symbol file
 const char *listerr=0;//error message for list file
 label *labelhere;//points to the label being defined on the current line (for EQU, =, etc)
 FILE *listfile=0;
@@ -1179,6 +1180,46 @@ void export_labelfiles() {
 	}
 }
 
+
+void export_lua() {
+	// iterate through all the labels and output Lua-compatible label info files
+
+	int i;
+	label *l;
+	char str[512];
+	char filename[512];
+	FILE* mainfile;
+	char *strptr;
+	strcpy(filename, outputfilename);
+
+	strptr=strrchr(filename,'.'); // strptr ='.'ptr
+	if(strptr) if(strchr( strptr,'\\' )) strptr = 0; // watch out for "dirname.ext\listfile"
+	if(!strptr) strptr = filename + strlen(str); // strptr -> inputfile extension
+	strcpy(strptr, ".lua");
+
+	mainfile=fopen(filename, "w");
+
+	for(i=labelstart;i<labelend;i++){
+		l=labellist[i];
+
+		if( 
+			(
+				(*l).type==LABEL ||
+				(((*l).type==EQUATE || (*l).type==VALUE) && strlen((*l).name) > 1)
+			)
+				&& (*l).value < 0x10000
+				// no anonymous labels
+				&& (*l).name[0] != '-'
+				&& (*l).name[0] != '+'
+		){
+			sprintf(str,"%s = 0x%04X\n",(*l).name,(*l).value);
+			fwrite((const void *)str,1,strlen(str),mainfile);
+		}
+	}
+
+	fclose ( mainfile );
+}
+
 //local:
 //  false: if label starts with LOCALCHAR, make it local, otherwise it's global
 //  true: force label to be local (used for macros)
@@ -1557,6 +1598,7 @@ void showhelp(void) {
 	puts("	-q		  quiet mode (no output unless error)");
 	// [freem addition]
 	puts("	-n		  export FCEUX-compatible .nl files\n");
+	puts("  -f		  export Lua symbol file\n");
 	puts("See README.TXT for more info.\n");
 }
 
@@ -1623,6 +1665,9 @@ int main(int argc,char **argv) {
 				// [freem addition]
 				case 'n':
 					genfceuxnl=1;
+					break;
+				case 'f':
+					genlua=1;
 					break;
 				default:
 					fatal_error("unknown option: %s",argv[i]);
@@ -1723,6 +1768,8 @@ int main(int argc,char **argv) {
 	// [freem addition] only generate labelfiles if asked
 	if(genfceuxnl)
 		export_labelfiles();
+	if(genlua)
+		export_lua();
 
 	return error ? EXIT_FAILURE : 0;
 }
