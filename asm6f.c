@@ -363,52 +363,52 @@ struct {
 	char* name;
 	void (*func)( label*, char** );
 } directives[]={
-		"",nothing,
-		"IF",_if,
-		"ELSEIF",elseif,
-		"ELSE",_else,
-		"ENDIF",endif,
-		"IFDEF",ifdef,
-		"IFNDEF",ifndef,
-		"=",equal,
-		"EQU",equ,
-		"ORG",org,
-		"BASE",base,
-		"PAD",pad,
-		"INCLUDE",include,"INCSRC",include,
-		"INCBIN",incbin,"BIN",incbin,
-		"HEX",hex,
-		"WORD",dw,"DW",dw,"DCW",dw,"DC.W",dw,
-		"BYTE",db,"DB",db,"DCB",db,"DC.B",db,
-		"DSW",dsw,"DS.W",dsw,
-		"DSB",dsb,"DS.B",dsb,
-		"ALIGN",align,
-		"MACRO",macro,
-		"REPT",rept,
-		"ENDM",endm,
-		"ENDR",endr,
-		"ENUM",_enum,
-		"ENDE",ende,
-		"IGNORENL",ignorenl,
-		"ENDINL",endinl,
-		"FILLVALUE",fillval,
-		"DL",dl,
-		"DH",dh,
-		"ERROR",make_error,
-		"INESPRG",inesprg,
-		"INESCHR",ineschr,
-		"INESMIR",inesmir,
-		"INESMAP",inesmap,
-		"NES2CHRRAM",nes2chrram,
-		"NES2PRGRAM",nes2prgram,
-		"NES2SUB",nes2sub,
-		"NES2TV",nes2tv,
-		"NES2VS",nes2vs,
-		"NES2BRAM",nes2bram,
-		"NES2CHRBRAM",nes2chrbram,
-		"UNSTABLE",unstable,
-		"HUNSTABLE",hunstable,
-		0, 0
+		{"",nothing},
+		{"IF",_if},
+		{"ELSEIF",elseif},
+		{"ELSE",_else},
+		{"ENDIF",endif},
+		{"IFDEF",ifdef},
+		{"IFNDEF",ifndef},
+		{"=",equal},
+		{"EQU",equ},
+		{"ORG",org},
+		{"BASE",base},
+		{"PAD",pad},
+		{"INCLUDE",include},{"INCSRC",include},
+		{"INCBIN",incbin},{"BIN",incbin},
+		{"HEX",hex},
+		{"WORD",dw},{"DW",dw},{"DCW",dw},{"DC.W",dw},
+		{"BYTE",db},{"DB",db},{"DCB",db},{"DC.B",db},
+		{"DSW",dsw},{"DS.W",dsw},
+		{"DSB",dsb},{"DS.B",dsb},
+		{"ALIGN",align},
+		{"MACRO",macro},
+		{"REPT",rept},
+		{"ENDM",endm},
+		{"ENDR",endr},
+		{"ENUM",_enum},
+		{"ENDE",ende},
+		{"IGNORENL",ignorenl},
+		{"ENDINL",endinl},
+		{"FILLVALUE",fillval},
+		{"DL",dl},
+		{"DH",dh},
+		{"ERROR",make_error},
+		{"INESPRG",inesprg},
+		{"INESCHR",ineschr},
+		{"INESMIR",inesmir},
+		{"INESMAP",inesmap},
+		{"NES2CHRRAM",nes2chrram},
+		{"NES2PRGRAM",nes2prgram},
+		{"NES2SUB",nes2sub},
+		{"NES2TV",nes2tv},
+		{"NES2VS",nes2vs},
+		{"NES2BRAM",nes2bram},
+		{"NES2CHRBRAM",nes2chrbram},
+		{"UNSTABLE",unstable},
+		{"HUNSTABLE",hunstable},
+		{0, 0}
 };
 
 char OutOfRange[]="Value out of range.";
@@ -1114,7 +1114,6 @@ void export_labelfiles() {
 	char filename[512];
 	FILE* bankfiles[64];
 	FILE* ramfile;
-	char outputstem[256];
 	char *strptr;
 
 	for(i=0;i<64;i++){ bankfiles[i]=0; }
@@ -1154,7 +1153,7 @@ void export_labelfiles() {
 			)
 				&& (*l).value < 0x10000
 		){
-			sprintf(str,"$%04X#%s#\n",(*l).value,(*l).name);
+			sprintf(str,"$%04X#%s#\n",(unsigned int)(*l).value,(*l).name);
 			// puts(str);
 
 			if((*l).value < 0x8000){
@@ -1212,7 +1211,7 @@ void export_lua() {
 				&& (*l).name[0] != '-'
 				&& (*l).name[0] != '+'
 		){
-			sprintf(str,"%s = 0x%04X\n",(*l).name,(*l).value);
+			sprintf(str,"%s = 0x%04X\n",(*l).name,(unsigned int)(*l).value);
 			fwrite((const void *)str,1,strlen(str),mainfile);
 		}
 	}
