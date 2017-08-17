@@ -49,6 +49,7 @@
 static void* true_ptr = &true_ptr;
 
 enum labeltypes {LABEL,VALUE,EQUATE,MACRO,RESERVED};
+enum cdltypes {NONE=0,CODE=1,DATA=2};
 //	LABEL: known address
 //	VALUE: defined with '='
 //	EQUATE: made with EQU
@@ -90,7 +91,7 @@ label firstlabel={		  //'$' label
 
 typedef struct {
 	char *text;
-	int binarypos;
+	int pos;
 } comment;
 
 typedef unsigned char byte;
@@ -1231,14 +1232,32 @@ void export_lua() {
 	fclose ( mainfile );
 }
 
+int comparelabels(const label** a, const label** b)
+{
+	if((*a)->type > (*b)->type) return 1;
+	if((*a)->type < (*b)->type) return -1;
+	if((*a)->pos > (*b)->pos) return 1;
+	if((*a)->pos < (*b)->pos) return -1;
+	if((*a)->value > (*b)->value) return 1;
+	if((*a)->value < (*b)->value) return -1;
+	return strcmp((*a)->name, (*b)->name);
+}
+
+int comparecomments(const comment** a, const comment** b)
+{
+	if((*a)->pos > (*b)->pos) return 1;
+	if((*a)->pos < (*b)->pos) return -1;
+	return strcmp((*a)->text, (*b)->text);
+}
+
 void export_mesenlabels() {
 	// iterate through all the labels and output Mesen-compatible label files
 	// based on their type (LABEL's,EQUATE's,VALUE's) and address (ram/rom)
 	int i;
+	char* commenttext;
 	label *l;
 	char str[512];
 	char filename[512];
-	char labelname[512];
 	char *strptr;
 	FILE* outfile;
 
@@ -1251,18 +1270,59 @@ void export_mesenlabels() {
 
 	outfile = fopen(filename, "w");
 
+	int currentcomment = 0;
+
+	qsort(labellist + labelstart, labelend - labelstart + 1, sizeof(label*), comparelabels);
+	qsort(comments, commentcount, sizeof(comment*), comparecomments);
+
 	for(i = labelstart; i<=labelend; i++) {
 		l = labellist[i];
 
-		if(l->value >= 0x10000 || l->name[0] == '+' || l->name[0] == '-') {
+		if(l->value >= 0x10000 || l->name[0] == '+' || l->name[0] == '-' || l->value < 0) {
 			//Ignore CHR & anonymous code labels
 			continue;
 		}
 
 		if(l->type == LABEL) {
 			//Labels in the actual code
-			sprintf(str, "P:%04X:%s\n", (unsigned int)(l->pos - 16), l->name);
+			if(l->pos < 16) {
+				//Ignore file header
+				continue;
+			}
+
+			//Check if one or more comments match this address
+			commenttext = 0;
+			while(currentcomment < commentcount) {
+				comment* c = comments[currentcomment];
+
+				if(c->pos < l->pos) {
+					//This comment is for a line before the current code label, write it to the file right away
+					if(c->pos >= 16) {
+						sprintf(str, "P:%04X::", (unsigned int)c->pos - 16);
+						fwrite((const void *)str, 1, strlen(str), outfile);
+						fwrite((const void *)c->text, 1, strlen(c->text), outfile);
+						fwrite("\n", 1, 1, outfile);
+					}
+					currentcomment++;
+				} else if(c->pos == l->pos) {
+					//Same address, write it on the same line as the label
+					commenttext = c->text;
+					currentcomment++;
+					break;
+				} else {
+					break;
+				}
+			}
+
+			//Dump the label
+			sprintf(str, "P:%04X:%s", (unsigned int)(l->pos - 16), l->name);
 			fwrite((const void *)str, 1, strlen(str), outfile);
+
+			if(commenttext) {
+				fwrite(":", 1, 1, outfile);
+				fwrite((const void *)commenttext, 1, strlen(commenttext), outfile);
+			}
+			fwrite("\n", 1, 1, outfile);
 		} else if(l->type == VALUE || l->type == EQUATE) {
 			//These are potentially aliases for variables in RAM, or read/write registers, etc.
 			if(l->value < 0x2000) {
@@ -1278,14 +1338,6 @@ void export_mesenlabels() {
 			}
 			fwrite((const void *)str, 1, strlen(str), outfile);
 		}
-	}
-
-	for(i = 0; i < commentcount; i++) {
-		//Dump all commments
-		sprintf(str, "C:%04X:", (unsigned int)comments[i]->binarypos - 16);
-		fwrite((const void *)str, 1, strlen(str), outfile);
-		fwrite((const void *)comments[i]->text, 1, strlen(comments[i]->text), outfile);
-		fwrite("\n", 1, 1, outfile);
 	}
 
 	fclose(outfile);
@@ -1403,6 +1455,12 @@ void growcommentlist(void) {
 }
 
 void addcomment(char* text) {
+	static int oldpass = 0;
+	if(oldpass != pass) {
+		oldpass = pass;
+		commentcount = 0;
+	}
+
 	text++; //ignore the leading ";"
 
 	if(lastcommentpos == filepos) {
@@ -1423,7 +1481,7 @@ void addcomment(char* text) {
 		growcommentlist();
 
 		comment* c = (comment*)my_malloc(sizeof(comment));
-		c->binarypos = filepos;
+		c->pos = filepos;
 		c->text = my_malloc(strlen(text)+1);
 		strcpy(c->text, text);		
 		
@@ -1914,7 +1972,7 @@ int main(int argc,char **argv) {
 #define LISTMAX 8//number of output bytes to show in listing
 byte listbuff[LISTMAX];
 int listcount;
-void output(byte *p,int size, int iscode) {
+void output(byte *p,int size, int cdlflag) {
 	static int oldpass=0;
 /*  static int noentry=0;
 	if(addr<0) {
@@ -1937,7 +1995,7 @@ void output(byte *p,int size, int iscode) {
 			while(repeat--) {
 				if(addr < 0x10000) {
 					//PRG, mark as either code or data
-					fwrite(iscode ? "\x1" : "\x2", 1, 1, cdlfile);
+					fwrite((void*)&((byte)cdlflag), 1, 1, cdlfile);
 				} else {
 					//CHR data
 					fwrite("\x0", 1, 1, cdlfile);
@@ -1994,12 +2052,12 @@ void output(byte *p,int size, int iscode) {
 }
 
 /* Outputs integer as little-endian. See readme.txt for proper usage. */
-static void output_le( int n, int size, int iscode )
+static void output_le( int n, int size, int cdlflag )
 {
 	byte b [2];
 	b [0] = n;
 	b [1] = n >> 8;
-	output( b, size, iscode);
+	output( b, size, cdlflag);
 }
 
 //end listing when src=0
@@ -2160,7 +2218,7 @@ void incbin(label *id,char **next) {
 			if(bytesleft>BUFFSIZE) i=BUFFSIZE;
 			else i=bytesleft;
 			fread(inputbuff,1,i,f);
-			output(inputbuff,i,0);
+			output(inputbuff,i,DATA);
 			bytesleft-=i;
 		}
 	} while(0);
@@ -2189,7 +2247,7 @@ void hex(label *id,char **next) {
 			}
 			buff[dst++]=(c1<<4)+c2;
 		} while(*src);
-		output((byte*)buff,dst,0);
+		output((byte*)buff,dst,DATA);
 		getword(buff,next,0);
 	} while(*buff);
 }
@@ -2202,7 +2260,7 @@ void dw(label *id, char **next) {
 			if(val>65535 || val<-65536)
 				errmsg=OutOfRange;
 			else
-				output_le(val,2,0);
+				output_le(val,2,DATA);
 		}
 	} while(!errmsg && eatchar(next,','));
 }
@@ -2212,7 +2270,7 @@ void dl(label *id, char **next) {
 	do {
 		val=eval(next,WHOLEEXP) & 0xff;
 		if(!errmsg)
-			output(&val,1,0);
+			output(&val,1,DATA);
 	} while(!errmsg && eatchar(next,','));
 }
 
@@ -2221,7 +2279,7 @@ void dh(label *id, char **next) {
 	do {
 		val=eval(next,WHOLEEXP)>>8;
 		if(!errmsg)
-			output(&val,1,0);
+			output(&val,1,DATA);
 	} while(!errmsg && eatchar(next,','));
 }
 
@@ -2252,7 +2310,7 @@ void db(label *id,char **next) {
 					start++;
 				val=*start+val2;
 				start++;
-				output_le(val,1,0);
+				output_le(val,1,DATA);
 			}
 		} else {
 			val=eval(next,WHOLEEXP);
@@ -2260,7 +2318,7 @@ void db(label *id,char **next) {
 				if(val>255 || val<-128)
 					errmsg=OutOfRange;
 				else
-					output_le(val,1,0);
+					output_le(val,1,DATA);
 			}
 		}
 	} while(!errmsg && eatchar(next,','));
@@ -2278,7 +2336,7 @@ void dsw(label *id,char **next) {
 		errmsg=OutOfRange;
 	if(errmsg) return;
 	while(count--)
-		 output_le(val,2,0);
+		 output_le(val,2,DATA);
 }
 
 void filler(int count,char **next) {
@@ -2291,7 +2349,7 @@ void filler(int count,char **next) {
 		errmsg=OutOfRange;
 	if(errmsg) return;
 	while(count--)//!#@$
-		 output_le(val,1,0);
+		 output_le(val,1,NONE);
 }
 
 void dsb(label *id,char **next) {
@@ -2401,8 +2459,8 @@ void opcode(label *id, char **next) {
 
 		if(addr>0xffff)
 			errmsg="PC out of range.";
-		output(op,1,1);
-		output_le(val,opsize[type],1);
+		output(op,1,CODE);
+		output_le(val,opsize[type],CODE);
 		*next+=s-tmpstr;
 		return;
 	}
