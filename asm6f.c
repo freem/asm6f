@@ -1232,22 +1232,26 @@ void export_lua() {
 	fclose ( mainfile );
 }
 
-int comparelabels(const label** a, const label** b)
+int comparelabels(const void* arg1, const void* arg2)
 {
-	if((*a)->type > (*b)->type) return 1;
-	if((*a)->type < (*b)->type) return -1;
-	if((*a)->pos > (*b)->pos) return 1;
-	if((*a)->pos < (*b)->pos) return -1;
-	if((*a)->value > (*b)->value) return 1;
-	if((*a)->value < (*b)->value) return -1;
-	return strcmp((*a)->name, (*b)->name);
+	const label* a = *((label**)arg1);
+	const label* b = *((label**)arg2);
+	if(a->type > b->type) return 1;
+	if(a->type < b->type) return -1;
+	if(a->pos > b->pos) return 1;
+	if(a->pos < b->pos) return -1;
+	if(a->value > b->value) return 1;
+	if(a->value < b->value) return -1;
+	return strcmp(a->name, b->name);
 }
 
-int comparecomments(const comment** a, const comment** b)
+int comparecomments(const void* arg1, const void* arg2)
 {
-	if((*a)->pos > (*b)->pos) return 1;
-	if((*a)->pos < (*b)->pos) return -1;
-	return strcmp((*a)->text, (*b)->text);
+	const comment* a = *((comment**)arg1);
+	const comment* b = *((comment**)arg2);
+	if(a->pos > b->pos) return 1;
+	if(a->pos < b->pos) return -1;
+	return strcmp(a->text, b->text);
 }
 
 void export_mesenlabels() {
@@ -1995,7 +1999,8 @@ void output(byte *p,int size, int cdlflag) {
 			while(repeat--) {
 				if(addr < 0x10000) {
 					//PRG, mark as either code or data
-					fwrite((void*)&((byte)cdlflag), 1, 1, cdlfile);
+					byte flag = (byte)cdlflag;
+					fwrite((void*)&flag, 1, 1, cdlfile);
 				} else {
 					//CHR data
 					fwrite("\x0", 1, 1, cdlfile);
