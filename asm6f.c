@@ -1784,7 +1784,7 @@ void showhelp(void) {
 	puts("\t-n\t\texport FCEUX-compatible .nl files");
 	puts("\t-f\t\texport Lua symbol file\n");
 	puts("\t-c\t\texport .cdl for use with FCEUX/Mesen");
-	puts("\t-n\t\texport Mesen-compatible label file (.mlb)");
+	puts("\t-m\t\texport Mesen-compatible label file (.mlb)");
 	puts("See README.TXT for more info.\n");
 }
 
