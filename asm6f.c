@@ -1780,11 +1780,11 @@ void showhelp(void) {
 	puts("\t-L\t\tcreate verbose listing (expand REPT, MACRO)");
 	puts("\t-d<name>\tdefine symbol");
 	puts("\t-q\t\tquiet mode (no output unless error)");
-	// [freem addition]
+	// [additions from various sources (freem, nicklausw, Sour)]
 	puts("\t-n\t\texport FCEUX-compatible .nl files");
-	puts("\t-f\t\texport Lua symbol file\n");
+	puts("\t-f\t\texport Lua symbol file");
 	puts("\t-c\t\texport .cdl for use with FCEUX/Mesen");
-	puts("\t-m\t\texport Mesen-compatible label file (.mlb)");
+	puts("\t-m\t\texport Mesen-compatible label file (.mlb)\n");
 	puts("See README.TXT for more info.\n");
 }
 
