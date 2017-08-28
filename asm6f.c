@@ -49,6 +49,7 @@
 static void* true_ptr = &true_ptr;
 
 enum labeltypes {LABEL,VALUE,EQUATE,MACRO,RESERVED};
+enum cdltypes {NONE=0,CODE=1,DATA=2};
 //	LABEL: known address
 //	VALUE: defined with '='
 //	EQUATE: made with EQU
@@ -87,6 +88,11 @@ label firstlabel={		  //'$' label
 	0,//[freem addition] ignorenl
 	0,//link
 };
+
+typedef struct {
+	char *text;
+	int pos;
+} comment;
 
 typedef unsigned char byte;
 typedef void (*icfn)(label*,char**);
@@ -458,13 +464,17 @@ const char *errmsg;
 char *inputfilename=0;
 char *outputfilename=0;
 char *listfilename=0;
+char *cdlfilename=0;
 int verboselisting=0;//expand REPT loops in listing
 int genfceuxnl=0;//[freem addition] generate FCEUX .nl files for symbolic debugging
+int genmesenlabels=0; //generate label files for use with Mesen
+int gencdl=0; //generate CDL file
 int genlua=0;//generate lua symbol file
 const char *listerr=0;//error message for list file
 label *labelhere;//points to the label being defined on the current line (for EQU, =, etc)
 FILE *listfile=0;
 FILE *outputfile=0;
+FILE *cdlfile=0;
 byte outputbuff[BUFFSIZE];
 byte inputbuff[BUFFSIZE];
 int outcount;//bytes waiting in outputbuff
@@ -474,6 +484,10 @@ int maxlabels;//max # of labels labellist can hold
 int labelstart;//index of first label
 int labelend;//index of last label
 label *lastlabel;//last label created
+comment **comments;
+int commentcount;
+int commentcapacity;
+int lastcommentpos = -1;
 int nooutput=0;//supress output (use with ENUM)
 int nonl=0;//[freem addition] supress output to .nl files
 int defaultfiller;//default fill value
@@ -1218,6 +1232,121 @@ void export_lua() {
 	fclose ( mainfile );
 }
 
+int comparelabels(const void* arg1, const void* arg2)
+{
+	const label* a = *((label**)arg1);
+	const label* b = *((label**)arg2);
+	if(a->type > b->type) return 1;
+	if(a->type < b->type) return -1;
+	if(a->pos > b->pos) return 1;
+	if(a->pos < b->pos) return -1;
+	if(a->value > b->value) return 1;
+	if(a->value < b->value) return -1;
+	return strcmp(a->name, b->name);
+}
+
+int comparecomments(const void* arg1, const void* arg2)
+{
+	const comment* a = *((comment**)arg1);
+	const comment* b = *((comment**)arg2);
+	if(a->pos > b->pos) return 1;
+	if(a->pos < b->pos) return -1;
+	return strcmp(a->text, b->text);
+}
+
+void export_mesenlabels() {
+	// iterate through all the labels and output Mesen-compatible label files
+	// based on their type (LABEL's,EQUATE's,VALUE's) and address (ram/rom)
+	int i;
+	char* commenttext;
+	label *l;
+	char str[512];
+	char filename[512];
+	char *strptr;
+	FILE* outfile;
+
+	strcpy(filename, outputfilename);
+
+	strptr = strrchr(filename, '.'); // strptr ='.'ptr
+	if(strptr) if(strchr(strptr, '\\')) strptr = 0; // watch out for "dirname.ext\listfile"
+	if(!strptr) strptr = filename + strlen(filename); // strptr -> inputfile extension
+	strcpy(strptr, ".mlb");
+
+	outfile = fopen(filename, "w");
+
+	int currentcomment = 0;
+
+	qsort(labellist + labelstart, labelend - labelstart + 1, sizeof(label*), comparelabels);
+	qsort(comments, commentcount, sizeof(comment*), comparecomments);
+
+	for(i = labelstart; i<=labelend; i++) {
+		l = labellist[i];
+
+		if(l->value >= 0x10000 || l->name[0] == '+' || l->name[0] == '-' || l->value < 0) {
+			//Ignore CHR & anonymous code labels
+			continue;
+		}
+
+		if(l->type == LABEL) {
+			//Labels in the actual code
+			if(l->pos < 16) {
+				//Ignore file header
+				continue;
+			}
+
+			//Check if one or more comments match this address
+			commenttext = 0;
+			while(currentcomment < commentcount) {
+				comment* c = comments[currentcomment];
+
+				if(c->pos < l->pos) {
+					//This comment is for a line before the current code label, write it to the file right away
+					if(c->pos >= 16) {
+						sprintf(str, "P:%04X::", (unsigned int)c->pos - 16);
+						fwrite((const void *)str, 1, strlen(str), outfile);
+						fwrite((const void *)c->text, 1, strlen(c->text), outfile);
+						fwrite("\n", 1, 1, outfile);
+					}
+					currentcomment++;
+				} else if(c->pos == l->pos) {
+					//Same address, write it on the same line as the label
+					commenttext = c->text;
+					currentcomment++;
+					break;
+				} else {
+					break;
+				}
+			}
+
+			//Dump the label
+			sprintf(str, "P:%04X:%s", (unsigned int)(l->pos - 16), l->name);
+			fwrite((const void *)str, 1, strlen(str), outfile);
+
+			if(commenttext) {
+				fwrite(":", 1, 1, outfile);
+				fwrite((const void *)commenttext, 1, strlen(commenttext), outfile);
+			}
+			fwrite("\n", 1, 1, outfile);
+		} else if(l->type == VALUE || l->type == EQUATE) {
+			//These are potentially aliases for variables in RAM, or read/write registers, etc.
+			if(l->value < 0x2000) {
+				//Assume nes internal RAM below $2000 (2kb)
+				sprintf(str, "R:%04X:%s\n", (unsigned int)l->value, l->name);
+			} else if(l->value >= 0x6000 && l->value < 0x8000) {
+				//Assume save/work RAM ($6000-$7FFF), dump as both. (not the best solution - maybe an option?)
+				sprintf(str, "S:%04X:%s\n", (unsigned int)l->value - 0x6000, l->name);
+				sprintf(str, "W:%04X:%s\n", (unsigned int)l->value - 0x6000, l->name);
+			} else {
+				//Assume a global register for everything else (e.g $8000 for mapper control, etc.)
+				sprintf(str, "G:%04X:%s\n", (unsigned int)l->value, l->name);
+			}
+			fwrite((const void *)str, 1, strlen(str), outfile);
+		}
+	}
+
+	fclose(outfile);
+}
+
 //local:
 //  false: if label starts with LOCALCHAR, make it local, otherwise it's global
 //  true: force label to be local (used for macros)
@@ -1311,6 +1440,63 @@ void initlabels(void) {
 		i++;
 	} while(directives[i].name);
 	lastlabel=p;
+}
+
+void initcomments(void) {
+	commentcount= 0;
+	commentcapacity = 1000;
+	comments = (comment**)my_malloc(commentcapacity * sizeof(comment*));
+}
+
+void growcommentlist(void) {
+	if(commentcount == commentcapacity) {
+		void* oldcomments = comments;
+		commentcapacity *= 2;
+		comments = (comment**)my_malloc(commentcapacity * sizeof(comment*));
+		memcpy(comments, oldcomments, commentcount * sizeof(comment*));
+		free(oldcomments);
+	}
+}
+
+void addcomment(char* text) {
+	static int oldpass = 0;
+	if(oldpass != pass) {
+		oldpass = pass;
+		commentcount = 0;
+	}
+
+	text++; //ignore the leading ";"
+
+	if(lastcommentpos == filepos) {
+		//Append comment to the previous comment, since they are for the same address
+		comment* c = comments[commentcount - 1];
+		char* oldtext = c->text;
+		int oldtextlen = strlen(oldtext);
+		char* newtext = my_malloc(oldtextlen + strlen(text) + 4);
+		strcpy(newtext, oldtext);
+		strcpy(newtext + oldtextlen, "\\n");
+		
+		//Get rid of last character (newline \n)
+		strcpy(newtext + oldtextlen + 2, text);
+		newtext[strlen(newtext) - 1] = '\0';
+		c->text = newtext;
+	} else {
+		//Add a new comment
+		growcommentlist();
+
+		comment* c = (comment*)my_malloc(sizeof(comment));
+		c->pos = filepos;
+		c->text = my_malloc(strlen(text)+1);
+		strcpy(c->text, text);		
+		
+		//Get rid of last character (newline \n)
+		c->text[strlen(text) - 1] = '\0';
+		
+		comments[commentcount] = c;
+		commentcount++;
+
+		lastcommentpos = filepos;
+	}
 }
 
 //find label with this name
@@ -1597,6 +1783,8 @@ void showhelp(void) {
 	// [freem addition]
 	puts("\t-n\t\texport FCEUX-compatible .nl files");
 	puts("\t-f\t\texport Lua symbol file\n");
+	puts("\t-c\t\texport .cdl for use with FCEUX/Mesen");
+	puts("\t-m\t\texport Mesen-compatible label file (.mlb)");
 	puts("See README.TXT for more info.\n");
 }
 
@@ -1614,6 +1802,7 @@ int main(int argc,char **argv) {
 		return EXIT_FAILURE;
 	}
 	initlabels();
+	initcomments();
 	notoption=0;
 	for(i=1;i<argc;i++) {
 		if(*argv[i]=='-' || *argv[i]=='/') {
@@ -1664,6 +1853,12 @@ int main(int argc,char **argv) {
 				case 'n':
 					genfceuxnl=1;
 					break;
+				case 'm':
+					genmesenlabels=1;
+					break;
+				case 'c':
+					gencdl = 1;
+					break;
 				case 'f':
 					genlua=1;
 					break;
@@ -1710,6 +1905,12 @@ int main(int argc,char **argv) {
 		if(f) inputfilename=my_strdup(str);
 	}
 	if(f) fclose(f);
+
+	if(gencdl) {
+		strcpy(nameptr, ".cdl");
+		cdlfilename = my_malloc(strlen(nameptr) + 1);
+		strcpy(cdlfilename, str);
+	}
 
 	//main assembly loop:
 	p=0;
@@ -1768,6 +1969,8 @@ int main(int argc,char **argv) {
 		export_labelfiles();
 	if(genlua)
 		export_lua();
+	if(genmesenlabels)
+		export_mesenlabels();
 
 	return error ? EXIT_FAILURE : 0;
 }
@@ -1775,7 +1978,7 @@ int main(int argc,char **argv) {
 #define LISTMAX 8//number of output bytes to show in listing
 byte listbuff[LISTMAX];
 int listcount;
-void output(byte *p,int size) {
+void output(byte *p,int size, int cdlflag) {
 	static int oldpass=0;
 /*  static int noentry=0;
 	if(addr<0) {
@@ -1785,6 +1988,29 @@ void output(byte *p,int size) {
 		}
 		return;
 	}*/
+	if(gencdl) {
+		if(oldpass != pass) {
+			if(cdlfile) {
+				fclose(cdlfile);
+			}
+			cdlfile = fopen(cdlfilename, "wb");
+		}
+
+		if(cdlfile && filepos >= 16) {
+			int repeat = size;
+			while(repeat--) {
+				if(addr < 0x10000) {
+					//PRG, mark as either code or data
+					byte flag = (byte)cdlflag;
+					fwrite((void*)&flag, 1, 1, cdlfile);
+				} else {
+					//CHR data
+					fwrite("\x0", 1, 1, cdlfile);
+				}
+			}
+		}
+	}
+
 	addr+=size;
 	filepos+=size;
 
@@ -1833,12 +2059,12 @@ void output(byte *p,int size) {
 }
 
 /* Outputs integer as little-endian. See readme.txt for proper usage. */
-static void output_le( int n, int size )
+static void output_le( int n, int size, int cdlflag )
 {
 	byte b [2];
 	b [0] = n;
 	b [1] = n >> 8;
-	output( b, size );
+	output( b, size, cdlflag);
 }
 
 //end listing when src=0
@@ -1880,7 +2106,13 @@ void listline(char *src,char *comment) {
 		else
 			fprintf(listfile,"%05X",(int)addr);
 		strcpy(srcbuff,src);//make a copy of the original source line
-		if(comment) strcat(srcbuff,comment);
+		if(comment) {
+			strcat(srcbuff, comment);
+			if(genmesenlabels && filepos > 0 && addr < 0x10000) {
+				//save this comment - needed for export
+				addcomment(comment);
+			}
+		}
 	} else {
 		fclose(listfile);
 		message("%s written.\n",listfilename);
@@ -1993,7 +2225,7 @@ void incbin(label *id,char **next) {
 			if(bytesleft>BUFFSIZE) i=BUFFSIZE;
 			else i=bytesleft;
 			fread(inputbuff,1,i,f);
-			output(inputbuff,i);
+			output(inputbuff,i,DATA);
 			bytesleft-=i;
 		}
 	} while(0);
@@ -2022,7 +2254,7 @@ void hex(label *id,char **next) {
 			}
 			buff[dst++]=(c1<<4)+c2;
 		} while(*src);
-		output((byte*)buff,dst);
+		output((byte*)buff,dst,DATA);
 		getword(buff,next,0);
 	} while(*buff);
 }
@@ -2035,7 +2267,7 @@ void dw(label *id, char **next) {
 			if(val>65535 || val<-65536)
 				errmsg=OutOfRange;
 			else
-				output_le(val,2);
+				output_le(val,2,DATA);
 		}
 	} while(!errmsg && eatchar(next,','));
 }
@@ -2045,7 +2277,7 @@ void dl(label *id, char **next) {
 	do {
 		val=eval(next,WHOLEEXP) & 0xff;
 		if(!errmsg)
-			output(&val,1);
+			output(&val,1,DATA);
 	} while(!errmsg && eatchar(next,','));
 }
 
@@ -2054,7 +2286,7 @@ void dh(label *id, char **next) {
 	do {
 		val=eval(next,WHOLEEXP)>>8;
 		if(!errmsg)
-			output(&val,1);
+			output(&val,1,DATA);
 	} while(!errmsg && eatchar(next,','));
 }
 
@@ -2085,7 +2317,7 @@ void db(label *id,char **next) {
 					start++;
 				val=*start+val2;
 				start++;
-				output_le(val,1);
+				output_le(val,1,DATA);
 			}
 		} else {
 			val=eval(next,WHOLEEXP);
@@ -2093,7 +2325,7 @@ void db(label *id,char **next) {
 				if(val>255 || val<-128)
 					errmsg=OutOfRange;
 				else
-					output_le(val,1);
+					output_le(val,1,DATA);
 			}
 		}
 	} while(!errmsg && eatchar(next,','));
@@ -2111,7 +2343,7 @@ void dsw(label *id,char **next) {
 		errmsg=OutOfRange;
 	if(errmsg) return;
 	while(count--)
-		 output_le(val,2);
+		 output_le(val,2,DATA);
 }
 
 void filler(int count,char **next) {
@@ -2124,7 +2356,7 @@ void filler(int count,char **next) {
 		errmsg=OutOfRange;
 	if(errmsg) return;
 	while(count--)//!#@$
-		 output_le(val,1);
+		 output_le(val,1,NONE);
 }
 
 void dsb(label *id,char **next) {
@@ -2234,8 +2466,8 @@ void opcode(label *id, char **next) {
 
 		if(addr>0xffff)
 			errmsg="PC out of range.";
-		output(op,1);
-		output_le(val,opsize[type]);
+		output(op,1,CODE);
+		output_le(val,opsize[type],CODE);
 		*next+=s-tmpstr;
 		return;
 	}
