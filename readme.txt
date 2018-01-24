@@ -1,10 +1,10 @@
 --------------------------------------------------------------
 ASM6f (v1.6)
 A 6502 assembler by loopy (loopy at mm.st)
-With modifications by freem
+With modifications by freem, nicklausw, and Sour
 --------------------------------------------------------------
 
-Yes, it's another fork of ASM6.
+ASM6f is a fork of ASM6, primarily targeted at NES/Famicom development.
 
 --------------------------------------------------------------
 Features compared to stock ASM6
@@ -16,6 +16,8 @@ Features compared to stock ASM6
 * New directives "IGNORENL" and "ENDINL".
   These two are used for ignoring certain defines when using the -n option.
 * Support for iNES original and 2.0 header insertion.
+* Output of .cdl files, for use with FCEUX/Mesen.
+* Output of Mesen-compatible symbol files.
 
 --------------------------------------------------------------
 Command line
@@ -34,6 +36,8 @@ Options:
         -q         Quiet mode (suppress all output unless there's an error)
         -n         export FCEUX-compatible .nl files
         -f         export Lua symbol file
+        -c         export .cdl for use with FCEUX/Mesen
+        -m         export Mesen-compatible label file (.mlb)
         Default output is <sourcefile>.bin
         Default listing is <sourcefile>.lst
 
