@@ -1153,7 +1153,7 @@ void export_labelfiles() {
 
 	// todo: include EQUATES for other registers and variables
 
-	for(i=labelstart;i<labelend;i++){
+	for(i=labelstart;i<=labelend;i++){
 		l=labellist[i];
 
 		// [freem addition]: handle IGNORENL'd labels
