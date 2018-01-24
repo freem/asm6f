@@ -1,6 +1,15 @@
-/* asm6f - freem's modified version of asm6 */
+/* asm6f - asm6 with modifications for NES/Famicom development */
 
 /*  asm6f History:
+1.6 + f002
+	* [nicklausw] Added new directives for INES header generation.
+	* [nicklausw] Put unstable/highly unstable opcode use behind directives,
+	  instead of requiring separate executables.
+	* [nicklausw] Add support for Lua symbol file generation.
+	* [Sour] Add support for .cdl file generation, for use with FCEUX and Mesen.
+	* [Sour] Add support for Mesen-compatible (.mlb) label export.
+	* [freem] Fixed issue where the last symbol would not appear in an .nl file.
+
 1.6 + freem modifications
 	Added preliminary support for undocumented/illegal opcodes.
 	Added sonder's code to export the .nl files for FCEUX symbolic debugging.
