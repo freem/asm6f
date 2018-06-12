@@ -1814,7 +1814,7 @@ int main(int argc,char **argv) {
 	initcomments();
 	notoption=0;
 	for(i=1;i<argc;i++) {
-		if(*argv[i]=='-' || *argv[i]=='/') {
+		if(*argv[i]=='-' || (*argv[i]=='/' && strlen(argv[i]) == 2)) {
 			switch(argv[i][1]) {
 				case 'h':
 				case '?':
