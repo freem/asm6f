@@ -1,6 +1,9 @@
 /* asm6f - asm6 with modifications for NES/Famicom development */
 
 /*  asm6f History:
+1.6 + f003
+	* [icypawn] Added new directives for .lst file creation.   (Aka unregistered)
+
 1.6 + f002
 	* [nicklausw] Added new directives for INES header generation.
 	* [nicklausw] Put unstable/highly unstable opcode use behind directives,
@@ -502,6 +505,10 @@ int nonl=0;//[freem addition] supress output to .nl files
 int defaultfiller;//default fill value
 int insidemacro=0;//macro/rept is being expanded
 int verbose=1;
+int vacillatemacro=0;//remove MACRO definitions
+int insiderept=0;//rept is being expanded
+int needrept=1;//set to 0 if -u flag is set... 0: don't print rept lines in listing
+int defMacro=0;//set to 1 if -U flag is set and a macro is defined; gets 0 if print attempt
 
 static void* ptr_from_bool( int b )
 {
@@ -1677,8 +1684,8 @@ void processline(char *src,char *errsrc,int errline) {
 
 	errmsg=0;
 	comment=expandline(line,src);
-	if(!insidemacro || verboselisting)
-		listline(line,comment);
+	if (!((insiderept || insidemacro && needrept) || defMacro) || verboselisting)//for -U :)
+		listline(line,comment);//^0_0
 
 	s=line;
 	if(errmsg) {	//expandline error?
@@ -1693,6 +1700,7 @@ void processline(char *src,char *errsrc,int errline) {
 			}
 			if(p) if((*p).value==(ptrdiff_t)endm) {
 				comment=0;
+				defMacro=0; //0_0
 				if(endmac) {
 					endmac[0]='\n';
 					endmac[1]=0;//hide "ENDM" in case of "label: ENDM"
@@ -1758,8 +1766,8 @@ void processline(char *src,char *errsrc,int errline) {
 				break;
 		}
 		if(!p) {//maybe a label?
-			if(getlabel(word,&s2)) addlabel(word,insidemacro);
-			if(errmsg) goto badlabel;//fucked up label
+			if(getlabel(word,&s2)) addlabel(word,(insidemacro+insiderept));  //0_0
+			if(errmsg) goto badlabel;//######### label
 			p=getreserved(&s);
 		}
 		if(p) {
@@ -1789,11 +1797,13 @@ void showhelp(void) {
 	puts("\t-L\t\tcreate verbose listing (expand REPT, MACRO)");
 	puts("\t-d<name>\tdefine symbol");
 	puts("\t-q\t\tquiet mode (no output unless error)");
-	// [additions from various sources (freem, nicklausw, Sour)]
+	// [additions from various sources (freem, nicklausw, Sour, unregistered)]
 	puts("\t-n\t\texport FCEUX-compatible .nl files");
 	puts("\t-f\t\texport Lua symbol file");
 	puts("\t-c\t\texport .cdl for use with FCEUX/Mesen");
-	puts("\t-m\t\texport Mesen-compatible label file (.mlb)\n");
+	puts("\t-m\t\texport Mesen-compatible label file (.mlb)");
+    puts("\t-u\t\tcreate unreg listing (contracts rept; expands MACRO)");     //0_0
+    puts("\t-U\tcreate cool listing (expand only MACRO use&hide its definition)\n");//0_0
 	puts("See README.TXT for more info.\n");
 }
 
@@ -1871,6 +1881,13 @@ int main(int argc,char **argv) {
 				case 'f':
 					genlua=1;
 					break;
+				// [unregistered addition]
+				case 'U':
+					vacillatemacro=1;
+				case 'u'://0_0
+				   needrept=0;//for hiding rept lines in listfile creation
+					listfilename=true_ptr;
+				  break;
 				default:
 					fatal_error("unknown option: %s",argv[i]);
 			}
@@ -2574,6 +2591,7 @@ void macro(label *id, char **next) {
 		errmsg=NeedName;
 
 	makemacro=true_ptr;//flag for processline to skip to ENDM
+	defMacro=vacillatemacro;//0_0
 	if(errmsg) {//no valid macro name
 		return;
 	} else if((*labelhere).type==LABEL) {//new macro
@@ -2699,7 +2717,7 @@ void expandrept(int errline,char *errsrc) {
 
 	start=(char**)repttext;//first rept data
 	oldscope=scope;
-	insidemacro++;
+	insiderept++;//insidemacro++;//0_0
 	for(i=rept_loops;i;--i) {
 		linecount=0;
 		scope=nextscope++;
@@ -2718,7 +2736,7 @@ void expandrept(int errline,char *errsrc) {
 	}
 	errmsg=0;
 	scope=oldscope;
-	insidemacro--;
+	insiderept--;//insidemacro--;//0_0
 }
 
 int enum_saveaddr;
