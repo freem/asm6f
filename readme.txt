@@ -1,7 +1,7 @@
 --------------------------------------------------------------
 ASM6f (v1.6)
 A 6502 assembler by loopy (loopy at mm.st)
-With modifications by freem, nicklausw, and Sour
+With modifications by freem, nicklausw, Sour, and unregistered
 --------------------------------------------------------------
 
 ASM6f is a fork of ASM6, primarily targeted at NES/Famicom development.
@@ -38,6 +38,9 @@ Options:
         -f         export Lua symbol file
         -c         export .cdl for use with FCEUX/Mesen
         -m         export Mesen-compatible label file (.mlb)
+        -u         Create unreg listing (contracts rept; expands MACRO)
+        -U         Create cool listing (expands only MACRO use and hides their definitions)
+
         Default output is <sourcefile>.bin
         Default listing is <sourcefile>.lst
 
