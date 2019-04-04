@@ -2021,7 +2021,6 @@ void output(byte *p,int size, int cdlflag) {
 	}
 
 	addr+=size;
-	filepos+=size;
 
 	if(nooutput)
 		return;
@@ -2029,6 +2028,7 @@ void output(byte *p,int size, int cdlflag) {
 		oldpass=pass;
 		if(outputfile) fclose(outputfile);
 		outputfile=fopen(outputfilename,"wb");
+		filepos=0;
 		outcount=0;
 		if(!outputfile) {
 			errmsg="Can't create output file.";
@@ -2050,6 +2050,7 @@ void output(byte *p,int size, int cdlflag) {
 								0,0,0};
 			if ( fwrite(ineshdr,1,16,outputfile) < (size_t)16 || fflush( outputfile ) )
 				errmsg="Write error.";
+			filepos += 16;
 		}
 	}
 	if(!outputfile) return;
@@ -2057,6 +2058,7 @@ void output(byte *p,int size, int cdlflag) {
 		if(listfile && listcount<LISTMAX)
 			listbuff[listcount]=*p;
 		listcount++;
+		filepos++;
 		outputbuff[outcount++]=*p;
 		p++;
 		if(outcount>=BUFFSIZE) {
