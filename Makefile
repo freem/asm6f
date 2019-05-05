@@ -3,8 +3,10 @@ CC = gcc
 
 # Make an exe if on windows
 ifeq ($(OS),Windows_NT)
-	DOTEXE=.exe
-	RM = del
+	ampersand = &
+	WIN_EXIT = $(ampersand) exit 
+  DOTEXE=.exe
+	RM = cmd //c del
 endif
 
 .PHONY: all clean
@@ -15,4 +17,4 @@ safe:
 	$(CC) -Wall asm6f.c -o asm6f
 
 clean:
-	$(RM) asm6f$(DOTEXE)
+	$(RM) asm6f$(DOTEXE) $(WIN_EXIT)
