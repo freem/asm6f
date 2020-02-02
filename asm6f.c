@@ -1,6 +1,11 @@
 /* asm6f - asm6 with modifications for NES/Famicom development */
 
 /*  asm6f History:
+1.7
+	* [NaOH] read iNES/NES2 header from existing .nes file
+	* [NaOH] seek/skip to specific locations without padding,
+	  allowing overwrites of existing data.
+	
 1.6 + f002
 	* [nicklausw] Added new directives for INES header generation.
 	* [nicklausw] Put unstable/highly unstable opcode use behind directives,
@@ -41,8 +46,9 @@
 #include <stddef.h>
 #include <ctype.h>
 #include <stdarg.h>
+#include <assert.h>
 
-#define VERSION "1.6"
+#define VERSION "1.7"
 
 #define addr firstlabel.value	// '$' value
 #define NOORIGIN -0x40000000	// nice even number so aligning works before origin is defined
@@ -71,7 +77,9 @@ typedef struct {
 	ptrdiff_t value;		//PC (label), value (equate), param count (macro), funcptr (reserved)
 
 	// [freem addition (from asm6_sonder.c)]
-	int pos;				// location in file; used to determine bank when exporting labels
+	// location in output file; used to determine bank when exporting labels
+	// (only meaningful for labels corresponding to an address.)
+	int pos;				
 
 	char *line;			//for macro or equate, also used to mark unknown label
 							//*next:text->*next:text->..
@@ -85,6 +93,9 @@ typedef struct {
 	void *link;			//labels that share the same name (local labels) are chained together
 } label;
 
+// this is the current program address (in memory). 
+// it is incremented every time a byte is output.
+// accessed in this file via the macro `addr`.
 label firstlabel={		  //'$' label
 	"$",//*name
 	0,//value
@@ -127,10 +138,14 @@ int nes2wram_num = 0;
 int nes2bram_num = 0;
 int nes2chrbram_num = 0;
 
+// icfn definitions -- these all use the same signature, though
+// not all of these functions make use of the label* argument.
+
 void inesprg(label*, char**);
 void ineschr(label*, char**);
 void inesmir(label*, char**);
 void inesmap(label*, char**);
+void incines(label*,char**);
 
 void nes2chrram(label*, char**);
 void nes2prgram(label*, char**);
@@ -140,27 +155,19 @@ void nes2vs(label*, char**);
 void nes2bram(label*, char**);
 void nes2chrbram(label*, char**);
 
-label *findlabel(char*);
-void initlabels();
-label *newlabel();
-void getword(char*,char**,int);
-int getvalue(char**);
-int getoperator(char**);
-int eval(char**,int);
-label *getreserved(char**);
-int getlabel(char*,char**);
-void processline(char*,char*,int);
-void listline(char*,char*);
-void endlist();
 void opcode(label*,char**);
 void org(label*,char**);
 void base(label*,char**);
 void pad(label*,char**);
+void seekabs(label*, char**);
+void seekrel(label*, char**);
+void skiprel(label*, char**);
 void equ(label*,char**);
 void equal(label*,char**);
 void nothing(label*,char**);
 void include(label*,char**);
 void incbin(label*,char**);
+void incnes(label*,char**);
 void dw(label*,char**);
 void db(label*,char**);
 void dl(label*,char**);
@@ -190,8 +197,26 @@ void make_error(label*,char**);
 void unstable(label*,char**);
 void hunstable(label*,char**);
 
+// forward declarations
+label *findlabel(char*);
+void initlabels();
+label *newlabel();
+void getword(char*,char**,int);
+int getvalue(char**);
+int getoperator(char**);
+int eval(char**,int);
+label *getreserved(char**);
+int getlabel(char*,char**);
+void processline(char*,char*,int);
+void listline(char*,char*);
+void endlist();
+void flush_output(int);
+
 // [freem addition (from asm6_sonder.c)]
 int filepos=0;
+
+// [NaOH] keeps track of last byte edited in file.
+int filesize=0;
 
 enum optypes {ACC,IMM,IND,INDX,INDY,ZPX,ZPY,ABSX,ABSY,ZP,ABS,REL,IMP};
 int opsize[]={0,1,2,1,1,1,1,2,2,1,2,1,0};
@@ -390,8 +415,12 @@ struct {
 		{"ORG",org},
 		{"BASE",base},
 		{"PAD",pad},
+		{"SEEKABS",seekabs},
+		{"SEEKREL",seekrel},
+		{"SKIPREL",skiprel},
 		{"INCLUDE",include},{"INCSRC",include},
 		{"INCBIN",incbin},{"BIN",incbin},
+		{"INCNES",incnes},
 		{"HEX",hex},
 		{"WORD",dw},{"DW",dw},{"DCW",dw},{"DC.W",dw},
 		{"BYTE",db},{"DB",db},{"DCB",db},{"DC.B",db},
@@ -414,6 +443,7 @@ struct {
 		{"INESCHR",ineschr},
 		{"INESMIR",inesmir},
 		{"INESMAP",inesmap},
+		{"INCINES",incines},
 		{"NES2CHRRAM",nes2chrram},
 		{"NES2PRGRAM",nes2prgram},
 		{"NES2SUB",nes2sub},
@@ -439,6 +469,9 @@ char DivZero[]="Divide by zero.";
 char BadAddr[]="Can't determine address.";
 char NeedName[]="Need a name.";
 char CantOpen[]="Can't open file.";
+char CantSeek[]="Can't seek in file.";
+char CantSeekEnum[]="Can't seek in enum mode.";
+char InvalidHeader[]="iNES header invalid.";
 char ExtraENDM[]="ENDM without MACRO.";
 char ExtraENDR[]="ENDR without REPT.";
 char ExtraENDE[]="ENDE without ENUM.";
@@ -584,6 +617,7 @@ char *my_strupr(char *string)
 	return string;
 }
 
+// takes a hex character ('0'-'F'), returns value.
 int hexify(int i) {
 	if(i>='0' && i<='9') {
 		return i-'0';
@@ -1023,6 +1057,7 @@ char *expandline(char *dst,char *src) {
 				src++;
 				dst++;
 				c=*src;
+			// note that we skip numbers of form '0x...' and '32H' etc. (see getvalue())
 			} while((c>='0' && c<='9') || (c>='A' && c<='H') || (c>='a' && c<='h'));
 			c=1;//don't terminate yet
 		} else if(c=='"' || c=='\'') {//read past quotes
@@ -1174,6 +1209,7 @@ void export_labelfiles() {
 				(*l).type==LABEL ||
 				(((*l).type==EQUATE || (*l).type==VALUE) && strlen((*l).name) > 1)
 			)
+				// values greater than 0xffff cannot be addresses.
 				&& (*l).value < 0x10000
 		){
 			sprintf(str,"$%04X#%s#\n",(unsigned int)(*l).value,(*l).name);
@@ -1185,7 +1221,7 @@ void export_labelfiles() {
 			}
 			else{
 				// ROM
-				bank=(((*l).pos - 16)/16384);
+				bank=(((*l).pos - 16 * ines_include)/16384);
 				if (!bankfiles[bank]){
 					sprintf(strptr,".nes.%X.nl",bank);
 					bankfiles[bank]=fopen(filename,"w");
@@ -1766,6 +1802,7 @@ void processline(char *src,char *errsrc,int errline) {
 			if((*p).type==MACRO)
 				expandmacro(p,&s,errline,errsrc);
 			else
+				// call assembler function for the given directive.
 				((icfn)(*p).value)(p,&s);
 		}
 		if(!errmsg) {//check extra garbage
@@ -1925,6 +1962,7 @@ int main(int argc,char **argv) {
 	p=0;
 	do {
 		filepos=0;
+		filesize=0;
 		pass++;
 		if(pass==MAXPASSES || (p==lastlabel))
 			lastchance=1;//give up on too many tries or no progress made
@@ -1951,10 +1989,7 @@ int main(int argc,char **argv) {
 	if(outputfile) {
 		// Be sure last of output file is written properly
 		int result;
-		if ( fwrite(outputbuff,1,outcount,outputfile) < (size_t)outcount || fflush( outputfile ) )
-			fatal_error( "Write error." );
-		
-		i=ftell(outputfile);
+		flush_output(1);
 		
 		result = fclose(outputfile);
 		outputfile = NULL; // prevent fatal_error() from trying to close file again
@@ -1962,7 +1997,7 @@ int main(int argc,char **argv) {
 			fatal_error( "Write error." );
 		
 		if(!error) {
-			message("%s written (%i bytes).\n",outputfilename,i);
+			message("%s written (%i bytes).\n",outputfilename,filesize);
 		} else
 			remove(outputfilename);
 	} else {
@@ -1987,25 +2022,80 @@ int main(int argc,char **argv) {
 #define LISTMAX 8//number of output bytes to show in listing
 byte listbuff[LISTMAX];
 int listcount;
-void output(byte *p,int size, int cdlflag) {
+
+void flush_output(int force)
+{
+	if(outcount>=BUFFSIZE || force) {
+		if(fwrite(outputbuff,1,outcount,outputfile)<outcount)
+			errmsg="Write error.";
+		outcount=0;
+	}
+}
+
+// checks if we need to start a new file for outputting to.
+void output_file()
+{
+	// pass number for previous pass.
+	// note that the first pass is pass=1.
 	static int oldpass=0;
-/*  static int noentry=0;
-	if(addr<0) {
-		if(!noentry) {//do this only once
-			noentry++;
-			if(lastchance) errmsg=NoOrigin;//"Origin undefined."
-		}
-		return;
-	}*/
-	if(gencdl) {
+	
+	// if we're generating a CDL file.
+	if (gencdl) {
 		if(oldpass != pass) {
 			if(cdlfile) {
 				fclose(cdlfile);
 			}
 			cdlfile = fopen(cdlfilename, "wb");
 		}
+	}
+	
+	if (nooutput) return;
+	
+	// when starting a new pass, reopen file and possibly insert iNES header.
+	if(oldpass!=pass) {
+		oldpass=pass;
+		if(outputfile) fclose(outputfile);
+		outputfile=fopen(outputfilename,"wb+");
+		assert(filepos == 0);
+		assert(filesize == 0);
+		outcount=0;
+		if(!outputfile) {
+			errmsg="Can't create output file.";
+			return;
+		}
 
-		if(cdlfile && filepos >= 16) {
+		// (insert iNES header if needed)
+		if (ines_include) {
+			byte ineshdr[16] = {'N','E','S',0x1A,
+								(byte)inesprg_num,
+								(byte)ineschr_num,
+								(byte)(inesmap_num << 4) | inesmir_num,
+								(byte)(inesmap_num & 0xF0) | (use_nes2 << 3) | (nes2tv_num),
+								(byte)(inesmap_num >> 8) | (nes2sub_num << 4),
+								(byte)(inesprg_num >> 8) | ((ineschr_num >> 8) << 4),
+								(byte)(nes2bram_num << 4) | nes2prg_num,
+								(byte)(nes2chrbram_num << 4) | nes2chr_num,
+								(byte)nes2tv_num,
+								0,0,0};
+			if ( fwrite(ineshdr,1,16,outputfile) < (size_t)16 || fflush( outputfile ) )
+				errmsg="Write error.";
+			filepos = sizeof(ineshdr);
+			filesize = sizeof(ineshdr);
+		}
+	}
+}
+
+// writes `size` bytes from `p` to output file.
+// cdlflag is used when generating cdlfiles.
+// It should be one of the cdl types (NONE, DATA, or CODE).
+void output(byte *p,int size, int cdlflag) {
+	
+	// ensure we have a file that we're outputting to.
+	output_file();
+	
+	// update cdl file
+	if(gencdl) {
+		if(cdlfile && (!ines_include || filepos >= 16)) {
 			int repeat = size;
 			while(repeat--) {
 				if(addr < 0x10000) {
@@ -2019,53 +2109,32 @@ void output(byte *p,int size, int cdlflag) {
 			}
 		}
 	}
-
+	
+	// advance the memory address.
 	addr+=size;
-
-	if(nooutput)
+	
+	if (nooutput)
 		return;
-	if(oldpass!=pass) {
-		oldpass=pass;
-		if(outputfile) fclose(outputfile);
-		outputfile=fopen(outputfilename,"wb");
-		filepos=0;
-		outcount=0;
-		if(!outputfile) {
-			errmsg="Can't create output file.";
-			return;
-		}
-
-		// (insert iNES if needed)
-		if (ines_include) {
-			byte ineshdr[16] = {'N','E','S',0x1A,
-								(byte)inesprg_num,
-								(byte)ineschr_num,
-								(byte)(inesmap_num << 4) | inesmir_num,
-								(byte)(inesmap_num & 0xF0) | (use_nes2 << 3) | (nes2tv_num << 7),
-								(byte)(inesmap_num >> 8) | (nes2sub_num << 4),
-								(byte)(inesprg_num >> 8) | ((ineschr_num >> 8) << 4),
-								(byte)(nes2bram_num << 4) | nes2prg_num,
-								(byte)(nes2chrbram_num << 4) | nes2chr_num,
-								(byte)nes2tv_num,
-								0,0,0};
-			if ( fwrite(ineshdr,1,16,outputfile) < (size_t)16 || fflush( outputfile ) )
-				errmsg="Write error.";
-			filepos += 16;
-		}
-	}
+	
 	if(!outputfile) return;
+	
+	// write data.
 	while(size--) {
 		if(listfile && listcount<LISTMAX)
 			listbuff[listcount]=*p;
 		listcount++;
+		
+		// update filepos and filesize
 		filepos++;
+		if (filepos > filesize) filesize = filepos;
+		
+		// write to outputbuffer
 		outputbuff[outcount++]=*p;
+		
+		// advance source
 		p++;
-		if(outcount>=BUFFSIZE) {
-			if(fwrite(outputbuff,1,BUFFSIZE,outputfile)<BUFFSIZE)
-				errmsg="Write error.";
-			outcount=0;
-		}
+		
+		flush_output(0);
 	}
 }
 
@@ -2076,6 +2145,52 @@ static void output_le( int n, int size, int cdlflag )
 	b [0] = n;
 	b [1] = n >> 8;
 	output( b, size, cdlflag);
+}
+
+// seeks to the given location for outputting.
+void output_seek(int pos)
+{
+	byte padbyte = defaultfiller;
+	int prevaddr = addr;
+	
+	if (nooutput)
+	{
+		errmsg = CantSeekEnum;
+		return;
+	}
+	
+	// ensure output file exists.
+	output_file();
+	
+	flush_output(1);
+	
+	// FIXME: we don't actually need a file in order to set the next output position.
+	// Additionally, there is no need to pad until a write actually occurs.
+
+	if (pos > filesize)
+	{
+		// past end of file -- pad with zeros
+		filepos = filesize;
+		fseek(outputfile, filepos, SEEK_SET);
+		while (filepos < pos)
+		{
+			output(&padbyte, 1, NONE);
+		}
+	}
+	else if (pos < filesize)
+	{
+		// within file bounds -- seek there.
+		filepos = pos;
+		fseek(outputfile, filepos, SEEK_SET);
+	}
+	
+	if (filepos != ftell(outputfile))
+	{
+		errmsg = CantSeek;
+	}
+	
+	// ensures the above calls to output (for padding) won't modify addr.
+	addr = prevaddr;
 }
 
 //end listing when src=0
@@ -2178,6 +2293,42 @@ void base(label *id, char **next) {
 		addr=NOORIGIN;//undefine origin
 }
 
+void seekabs(label *id, char **next) {	
+	int val;
+	dependant=0;
+	val=eval(next,WHOLEEXP);
+	if(!dependant && !errmsg)
+	{
+		output_seek(val);
+	}
+}
+
+void seekrel(label *id, char **next) {	
+	int val;
+	dependant=0;
+	val=eval(next,WHOLEEXP);
+	if(!dependant && !errmsg)
+	{
+		output_seek(filepos + val);
+	}
+}
+
+void skiprel(label *id, char **next) {	
+	int val;
+	dependant=0;
+	val=eval(next,WHOLEEXP);
+	if(!dependant && !errmsg)
+	{
+		output_seek(filepos + val);
+		addr += val;
+	}
+	else
+	{
+		// undefine origin -- we don't know where we are anymore.
+		addr=NOORIGIN;
+	}
+}
+
 //nothing to do (empty line)
 void nothing(label *id, char **next) {
 }
@@ -2241,6 +2392,25 @@ void incbin(label *id,char **next) {
 		}
 	} while(0);
 	if(f) fclose(f);
+}
+
+void incnes(label *id, char **next) {
+	char buf[WORDMAX + 10];
+	
+	// get string-wrapped filename.
+	buf[0] = '"';
+	getfilename(buf + 1, next);
+	strcpy(buf + strlen(buf), "\"");
+	
+	char* s = buf;
+	incines(id, &s);
+	
+	// append `, $10` to the directive.
+	strcpy(s, ", $10");
+
+	// do incbin
+	s = buf;
+	incbin(id, &s);
 }
 
 void hex(label *id,char **next) {
@@ -2790,7 +2960,7 @@ void inesprg(label *id, char **next) {
 	if(inesprg_num < 0 || inesprg_num > 0xFF)
 		errmsg=OutOfRange;
 	
-	ines_include++;
+	ines_include = 1;
 }
 
 void ineschr(label *id, char **next) {
@@ -2799,7 +2969,7 @@ void ineschr(label *id, char **next) {
 	if(ineschr_num < 0 || ineschr_num > 0xFF)
 		errmsg=OutOfRange;
 	
-	ines_include++;
+	ines_include = 1;
 }
 
 void inesmir(label *id, char **next) {
@@ -2809,7 +2979,7 @@ void inesmir(label *id, char **next) {
 	if(inesmir_num > 16 || inesmir_num < 0)
 		errmsg=OutOfRange;
 	
-	ines_include++;
+	ines_include = 1;
 }
 
 void inesmap(label *id, char **next) {
@@ -2819,7 +2989,85 @@ void inesmap(label *id, char **next) {
 	if(inesmap_num > 4095 || inesmap_num < 0)
 		errmsg=OutOfRange;
 	
-	ines_include++;
+	ines_include = 1;
+}
+
+void incines(label *id,char **next) {
+	int filesize;
+	FILE *f=0;
+	
+	char header[ 0x10 ];
+	int parse = 0;
+
+	do {
+	//file open:
+		getfilename(tmpstr,next);
+		if(!(f=fopen(tmpstr,"rb"))) {
+			errmsg=CantOpen;
+			break;
+		}
+		fseek(f,0,SEEK_END);
+		filesize=ftell(f);
+		if (filesize < sizeof(header)) {
+			errmsg = InvalidHeader;
+			break;
+		}
+	//file seek:
+		fseek(f, 0,SEEK_SET);
+	// file read:
+		fread(header, sizeof(header), 1, f);
+		parse = 1;
+	} while(0);
+	if (f) fclose(f);
+	
+	// parse the header that was just read.
+	if (parse) {
+		ines_include = 1;
+		
+		// validate header
+		if (header[0] != 'N' || header[1] != 'E' || header[2] != 'S' || header[3] != 0x1A) {
+			errmsg = InvalidHeader;
+			return;
+		}
+		
+		// ines data
+		inesprg_num = header[4];
+		inesprg_num |= (header[9] & 0x0f) << 8;
+		
+		ineschr_num = header[5];
+		ineschr_num |= (header[9] & 0xf0) << 4;
+		
+		inesmir_num = (header[6] & 0x0f);
+		
+		inesmap_num = 0;
+		inesmap_num |= (header[6] & 0xf0) >> 4;
+		inesmap_num |= (header[7] & 0xf0);
+		inesmap_num |= (header[8] & 0x0f);		
+		
+		// nes2
+		if (header[7] & 0x04)
+		{
+			// nes2 flag is binary 10b exactly.
+			// not sure what x1b corresponds to.
+			errmsg = InvalidHeader;
+			return;
+		}
+		use_nes2 = (header[7] & 0x0c) == 0x08;
+		nes2tv_num = (header[7] & 0x03) >> 3;
+		nes2tv_num |= header[12] & ~0x03;
+		nes2sub_num = (header[8] & 0xf0) >> 4;
+		nes2bram_num = (header[10] & 0xf0) >> 4;
+		nes2prg_num = (header[10] & 0x0f);
+		nes2chrbram_num = (header[11] & 0xf0) >> 4;
+		nes2chr_num = (header[11] & 0x0f);
+		
+		// extra garbage data?
+		if (header[13] || header[14] || header[15])
+		{
+			errmsg = InvalidHeader;
+			return;
+		}
+	}
 }
 
 void nes2chrram(label *id, char **next) {
@@ -2828,7 +3076,7 @@ void nes2chrram(label *id, char **next) {
 	if (nes2chr_num < 0 || nes2chr_num > 16)
 		errmsg=OutOfRange;
 	
-	ines_include++; use_nes2 = 1;
+	ines_include = 1; use_nes2 = 1;
 }
 
 void nes2prgram(label *id, char **next) {
@@ -2837,7 +3085,7 @@ void nes2prgram(label *id, char **next) {
 	if (nes2prg_num < 0 || nes2prg_num > 16)
 		errmsg=OutOfRange;
 	
-	ines_include++; use_nes2 = 1;
+	ines_include = 1; use_nes2 = 1;
 }
 
 void nes2sub(label *id, char **next) {
@@ -2846,7 +3094,7 @@ void nes2sub(label *id, char **next) {
 	if (nes2sub_num < 0 || nes2sub_num > 16)
 		errmsg=OutOfRange;
 	
-	ines_include++; use_nes2 = 1;
+	ines_include = 1; use_nes2 = 1;
 }
 
 void nes2tv(label *id, char **next) {
@@ -2862,12 +3110,12 @@ void nes2tv(label *id, char **next) {
 	if(nes2tv_num > 2 || nes2tv_num < 0)
 		errmsg=OutOfRange;
 	
-	ines_include++; use_nes2 = 1;
+	ines_include = 1; use_nes2 = 1;
 }
 
 void nes2vs(label *id, char **next) {
 	nes2vs_num = 1;
-	ines_include++; use_nes2 = 1;
+	ines_include = 1; use_nes2 = 1;
 }
 
 void nes2bram(label *id, char **next) { 
@@ -2876,7 +3124,7 @@ void nes2bram(label *id, char **next) {
 	if (nes2bram_num < 0 || nes2bram_num > 16)
 		errmsg=OutOfRange;
 	
-	ines_include++; use_nes2 = 1;
+	ines_include = 1; use_nes2 = 1;
 }
 
 void nes2chrbram(label *id, char **next) {
@@ -2885,5 +3133,5 @@ void nes2chrbram(label *id, char **next) {
 	if (nes2chrbram_num < 0 || nes2chrbram_num > 16)
 		errmsg=OutOfRange;
 	
-	ines_include++; use_nes2 = 1;
+	ines_include = 1; use_nes2 = 1;
 }

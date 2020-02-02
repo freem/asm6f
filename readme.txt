@@ -6,6 +6,8 @@ With modifications by freem, nicklausw, and Sour
 
 ASM6f is a fork of ASM6, primarily targeted at NES/Famicom development.
 
+See readme-original.txt for the features of ASM6.
+
 --------------------------------------------------------------
 Features compared to stock ASM6
 --------------------------------------------------------------
@@ -211,6 +213,47 @@ HUNSTABLE
                 HUNSTABLE
                 xaa #7
 
+INCNES
+    
+    Includes the given NES file in its entirety, reading its header.
+    Fatal error if the header is invalid.
+    
+    Identical to:
+    
+        INCINES "file.nes"
+        INCBIN "file.nes", $10    
+
+SEEKABS x
+
+    Sets the output position in the file. This permits
+    overwriting data or code that was previously written.
+    
+    When seeking past the end of the file, the file will be padded
+    up to the seek point.
+    
+    The program address ($) is not modified by this directive.
+    
+SEEKREL x
+
+    As above, but relative to the current output location.
+    
+    The program address ($) is not modified by this directive.
+    
+SKIPREL x
+
+    Skips x bytes without writing -- though padding will be used if skipping
+    past the end of the file.
+    
+    The file position and program address are both modified by this directive.
+    
+    There is no SKIPABS directive because the program address ($) and file output
+    location are not co-absolute; they may be offset from each other and need not agree.
+    
+    Identical to:
+    
+        SEEKREL x
+        BASE $+x
+
 --------------------------------------------------------------
 iNES directives
 --------------------------------------------------------------
@@ -250,6 +293,11 @@ NES2BRAM x
 
 NES2CHRBRAM x
         Amount of battery-packed CHR RAM in NES ROM.
+        
+INCINES file.nes
+    Reads the nes header from the given binary file.
+    Reads both iNES and NES2 headers.
+    Fatal error if the header is invalid.
 
 --------------------------------------------------------------
 loopy's original To-Do List
