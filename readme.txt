@@ -218,10 +218,15 @@ INCNES
     Includes the given NES file in its entirety, reading its header.
     Fatal error if the header is invalid.
     
-    Identical to:
+    Similar to using both of the following commands:
     
         INCINES "file.nes"
-        INCBIN "file.nes", $10    
+        INCBIN "file.nes", $10
+        
+    However, if a CDL file (i.e. "file.cdl") exists with the same
+    basename as as the included .nes file, then that CDL data will
+    be used. Otherwise, the CDL data is set to NONE. See the .c flag
+    for details.
 
 SEEKABS x
 

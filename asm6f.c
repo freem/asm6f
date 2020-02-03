@@ -5,6 +5,7 @@
 	* [NaOH] read iNES/NES2 header from existing .nes file
 	* [NaOH] seek/skip to specific locations without padding,
 	  allowing overwrites of existing data.
+	* [NaOH] fixed issue when generating .nl file when ORG is unset.
 	
 1.6 + f002
 	* [nicklausw] Added new directives for INES header generation.
@@ -54,6 +55,7 @@
 #define NOORIGIN -0x40000000	// nice even number so aligning works before origin is defined
 #define INITLISTSIZE 128		// initial label list size
 #define BUFFSIZE 8192			// file buffer (inputbuff, outputbuff) size
+#define STACKBUFFSIZE 512       // stack-allocated buffer size.
 #define WORDMAX 128				// used with getword()
 #define LINEMAX 2048			// plenty of room for nested equates
 #define MAXPASSES 7				// # of tries before giving up
@@ -211,6 +213,8 @@ void processline(char*,char*,int);
 void listline(char*,char*);
 void endlist();
 void flush_output(int);
+char* find_ext(char*);
+char* replace_ext(char*, char*);
 
 // [freem addition (from asm6_sonder.c)]
 int filepos=0;
@@ -469,6 +473,7 @@ char DivZero[]="Divide by zero.";
 char BadAddr[]="Can't determine address.";
 char NeedName[]="Need a name.";
 char CantOpen[]="Can't open file.";
+char CantWrite[]="Write error.";
 char CantSeek[]="Can't seek in file.";
 char CantSeekEnum[]="Can't seek in enum mode.";
 char InvalidHeader[]="iNES header invalid.";
@@ -1170,9 +1175,9 @@ void export_labelfiles() {
 	label *l;
 	char str[512];
 	char filename[512];
+	char* strptr;
 	FILE* bankfiles[64];
 	FILE* ramfile;
-	char *strptr;
 
 	for(i=0;i<64;i++){ bankfiles[i]=0; }
 
@@ -1180,13 +1185,9 @@ void export_labelfiles() {
 	// bank files: <output>.bank#hex.nl
 
 	strcpy(filename, outputfilename);
-
-	strptr=strrchr(filename,'.'); // strptr ='.'ptr
-	if(strptr) if(strchr( strptr,'\\' )) strptr = 0; // watch out for "dirname.ext\listfile"
-	if(!strptr) strptr = filename + strlen(str); // strptr -> inputfile extension
-	strcpy(strptr, ".nes.ram.nl");
-
-	ramfile=fopen(filename, "w");
+	strptr = find_ext(filename);
+	sprintf(strptr, ".nes.ram.nl");
+	ramfile= fopen(filename, "w");
 
 	// the bank files are created ad-hoc before being written to.
 
@@ -1209,8 +1210,8 @@ void export_labelfiles() {
 				(*l).type==LABEL ||
 				(((*l).type==EQUATE || (*l).type==VALUE) && strlen((*l).name) > 1)
 			)
-				// values greater than 0xffff cannot be addresses.
-				&& (*l).value < 0x10000
+				// only positive values at most 0xffff can be addresses
+				&& (*l).value < 0x10000 && (*l).value >= 0
 		){
 			sprintf(str,"$%04X#%s#\n",(unsigned int)(*l).value,(*l).name);
 			// puts(str);
@@ -1245,17 +1246,12 @@ void export_lua() {
 	int i;
 	label *l;
 	char str[512];
-	char filename[512];
+	char* filename;
 	FILE* mainfile;
-	char *strptr;
-	strcpy(filename, outputfilename);
-
-	strptr=strrchr(filename,'.'); // strptr ='.'ptr
-	if(strptr) if(strchr( strptr,'\\' )) strptr = 0; // watch out for "dirname.ext\listfile"
-	if(!strptr) strptr = filename + strlen(str); // strptr -> inputfile extension
-	strcpy(strptr, ".lua");
-
+	
+	filename = replace_ext(outputfilename, ".lua");
 	mainfile=fopen(filename, "w");
+	free(filename);
 
 	for(i=labelstart;i<=labelend;i++){
 		l=labellist[i];
@@ -1306,18 +1302,12 @@ void export_mesenlabels() {
 	char* commenttext;
 	label *l;
 	char str[512];
-	char filename[512];
-	char *strptr;
+	char* filename;
 	FILE* outfile;
 
-	strcpy(filename, outputfilename);
-
-	strptr = strrchr(filename, '.'); // strptr ='.'ptr
-	if(strptr) if(strchr(strptr, '\\')) strptr = 0; // watch out for "dirname.ext\listfile"
-	if(!strptr) strptr = filename + strlen(filename); // strptr -> inputfile extension
-	strcpy(strptr, ".mlb");
-
+	filename = replace_ext(outputfilename, ".mlb");
 	outfile = fopen(filename, "w");
+	free(filename);
 
 	int currentcomment = 0;
 
@@ -1837,9 +1827,8 @@ void showhelp(void) {
 //--------------------------------------------------------------------------------------------
 
 int main(int argc,char **argv) {
-	char str[512];
 	int i,notoption;
-	char *nameptr;
+	char* tryname;
 	label *p;
 	FILE *f;
 
@@ -1926,36 +1915,29 @@ int main(int argc,char **argv) {
 	if(!inputfilename) 
 		fatal_error("No source file specified.");
 	
-	strcpy(str,inputfilename);
-	nameptr=strrchr(str,'.');//nameptr='.' ptr
-	if(nameptr) if(strchr(nameptr,'\\')) nameptr=0;//watch out for "dirname.ext\listfile"
-	if(!nameptr) nameptr=str+strlen(str);//nameptr=inputfile extension
 	if(!outputfilename) {
-		strcpy(nameptr,".bin");
-		outputfilename=my_strdup(str);
+		outputfilename = replace_ext(inputfilename, ".bin");
 	}
 
 	if(listfilename==true_ptr) {	//if listfile was wanted but no name was specified, use srcfile.LST
-		strcpy(nameptr,".lst");
-		listfilename=my_strdup(str);
+		listfilename = replace_ext(inputfilename, ".lst");
 	}
 
 	f=fopen(inputfilename,"rb");	//if srcfile won't open, try some default extensions
 	if(!f) {
-		strcpy(nameptr,".asm");
-		f=fopen(str,"rb");
+		tryname = replace_ext(inputfilename, ".asm");
+		f=fopen(tryname,"rb");
 		if(!f) {
-			strcpy(nameptr,".s");
-			f=fopen(str,"rb");
+			free(tryname);
+			tryname = replace_ext(inputfilename, ".s");
+			f=fopen(tryname,"rb");
 		}
-		if(f) inputfilename=my_strdup(str);
+		if(f) inputfilename=tryname;
 	}
 	if(f) fclose(f);
 
 	if(gencdl) {
-		strcpy(nameptr, ".cdl");
-		cdlfilename = my_malloc(strlen(nameptr) + 1);
-		strcpy(cdlfilename, str);
+		cdlfilename = replace_ext(inputfilename, ".cdl");
 	}
 
 	//main assembly loop:
@@ -1977,8 +1959,8 @@ int main(int argc,char **argv) {
 		defaultfiller=DEFAULTFILLER;	//reset filler value
 		addr=NOORIGIN;//undefine origin
 		p=lastlabel;
-		nameptr=inputfilename;
-		include(0,&nameptr);		//start assembling srcfile
+		tryname=inputfilename;
+		include(0,&tryname);		//start assembling srcfile
 		if(errmsg)
 		{
 			//todo - shouldn't this set error?
@@ -1994,7 +1976,7 @@ int main(int argc,char **argv) {
 		result = fclose(outputfile);
 		outputfile = NULL; // prevent fatal_error() from trying to close file again
 		if ( result )
-			fatal_error( "Write error." );
+			fatal_error( CantWrite);
 		
 		if(!error) {
 			message("%s written (%i bytes).\n",outputfilename,filesize);
@@ -2019,6 +2001,42 @@ int main(int argc,char **argv) {
 	return error ? EXIT_FAILURE : 0;
 }
 
+// returns position of extension in the path, or
+// end of string if no extension.
+char* find_ext(char* in)
+{
+	char* strptr = strrchr(in, '.');
+	
+	// watch out for "dirname.ext\listfile"
+	if (strptr) {
+		if (strchr( strptr,'\\' ) || strchr(strptr, '/')) {
+			strptr = 0;
+		}
+	}
+	
+	// no input extension; skip to end.
+	if (!strptr) strptr = in + strlen(in);
+	
+	return strptr;
+}
+
+// duplicates the given input filename,
+// replacing the extension with the provided ext.
+// ext need not start with a '.'
+char* replace_ext(char* in, char* ext)
+{
+	char* strptr;
+	char* out = my_malloc(strlen(in) + strlen(ext) + 1);
+	strcpy(out, in);
+	
+	// search for last '.'
+	strptr = find_ext(out);
+	
+	strcpy(strptr, ext);
+	
+	return out;
+}
+
 #define LISTMAX 8//number of output bytes to show in listing
 byte listbuff[LISTMAX];
 int listcount;
@@ -2026,8 +2044,8 @@ int listcount;
 void flush_output(int force)
 {
 	if(outcount>=BUFFSIZE || force) {
-		if(fwrite(outputbuff,1,outcount,outputfile)<outcount)
-			errmsg="Write error.";
+		if(fwrite(outputbuff,1,outcount,outputfile)<outcount || fflush(outputfile))
+			errmsg=CantWrite;
 		outcount=0;
 	}
 }
@@ -2039,17 +2057,17 @@ void output_file()
 	// note that the first pass is pass=1.
 	static int oldpass=0;
 	
+	if (nooutput) return;
+	
 	// if we're generating a CDL file.
 	if (gencdl) {
 		if(oldpass != pass) {
 			if(cdlfile) {
 				fclose(cdlfile);
 			}
-			cdlfile = fopen(cdlfilename, "wb");
+			cdlfile = fopen(cdlfilename, "wb+");
 		}
 	}
-	
-	if (nooutput) return;
 	
 	// when starting a new pass, reopen file and possibly insert iNES header.
 	if(oldpass!=pass) {
@@ -2078,7 +2096,7 @@ void output_file()
 								(byte)nes2tv_num,
 								0,0,0};
 			if ( fwrite(ineshdr,1,16,outputfile) < (size_t)16 || fflush( outputfile ) )
-				errmsg="Write error.";
+				errmsg=CantWrite;
 			filepos = sizeof(ineshdr);
 			filesize = sizeof(ineshdr);
 		}
@@ -2094,7 +2112,7 @@ void output(byte *p,int size, int cdlflag) {
 	output_file();
 	
 	// update cdl file
-	if(gencdl) {
+	if(gencdl && !nooutput) {
 		if(cdlfile && (!ines_include || filepos >= 16)) {
 			int repeat = size;
 			while(repeat--) {
@@ -2164,9 +2182,36 @@ void output_seek(int pos)
 	
 	flush_output(1);
 	
+	// seek in cdlfile.
+	if (gencdl)
+	{
+		if (cdlfile)
+		{
+			int cdlpos = (pos < filesize)
+				? pos
+				: filesize;
+			// cdl file is headerless
+			if (ines_include) cdlpos -= 0x10;
+			// clamp
+			if (cdlpos < 0) cdlpos = 0;
+			if (fflush(cdlfile))
+			{
+				errmsg = CantWrite;
+				return;
+			}
+			fseek(cdlfile, cdlpos, SEEK_SET);
+			if (ftell(cdlfile) != cdlpos)
+			{
+				errmsg = CantSeek;
+				return;
+			}
+		}
+	}
+	
 	// FIXME: we don't actually need a file in order to set the next output position.
 	// Additionally, there is no need to pad until a write actually occurs.
 
+	// seek in outputfile.
 	if (pos > filesize)
 	{
 		// past end of file -- pad with zeros
@@ -2234,7 +2279,7 @@ void listline(char *src,char *comment) {
 		strcpy(srcbuff,src);//make a copy of the original source line
 		if(comment) {
 			strcat(srcbuff, comment);
-			if(genmesenlabels && filepos > 0 && addr < 0x10000) {
+			if(genmesenlabels && filepos > 0 && addr < 0x10000 && addr >= 0) {
 				//save this comment - needed for export
 				addcomment(comment);
 			}
@@ -2395,22 +2440,98 @@ void incbin(label *id,char **next) {
 }
 
 void incnes(label *id, char **next) {
-	char buf[WORDMAX + 10];
+	char filename[WORDMAX];
+	char buf[WORDMAX + 2];
+	int filesize, seekpos, bytesleft, i;
+	int cdlbytesleft, cdli, cdlstart, cdlflag;
+	char cdlbuf[STACKBUFFSIZE];
+	FILE *f=0;
+	FILE *cdl=0;
 	
 	// get string-wrapped filename.
 	buf[0] = '"';
-	getfilename(buf + 1, next);
+	getfilename(filename, next);
+	strcpy(buf + 1, filename);
 	strcpy(buf + strlen(buf), "\"");
 	
 	char* s = buf;
 	incines(id, &s);
-	
-	// append `, $10` to the directive.
-	strcpy(s, ", $10");
 
-	// do incbin
-	s = buf;
-	incbin(id, &s);
+	// include binary
+	do {
+	//file open:
+		if(!(f=fopen(filename,"rb"))) {
+			errmsg=CantOpen;
+			break;
+		}
+		fseek(f,0,SEEK_END);
+		filesize=ftell(f);
+		if (filesize < 0x10)
+		{
+			errmsg = SeekOutOfRange;
+			break;
+		}
+	//check for .cdl file (optional)
+		if (gencdl)
+		{
+			s = replace_ext(filename, ".cdl");
+			if ((cdl = fopen(s, "rb")))
+			{
+				fseek(cdl, 0, SEEK_END);
+				cdlbytesleft = ftell(cdl);
+				fseek(cdl, 0, SEEK_SET);
+				if (cdlbytesleft == 0)
+				{
+					fclose(cdl);
+					cdl = 0;
+				}
+			}
+			free(s);
+		}
+		
+	//file seek:
+		seekpos=0x10;
+		fseek(f,0x10,SEEK_SET);
+	//get size:
+		bytesleft=filesize-seekpos;
+	//read file:
+		while(bytesleft) {
+			// clamp to buffer
+			i = bytesleft;
+			if (i>BUFFSIZE) i=BUFFSIZE;
+			if (cdl && i > cdlbytesleft) i = cdlbytesleft;
+			if (cdl && i > STACKBUFFSIZE) i = STACKBUFFSIZE;
+			fread(inputbuff,1,i,f);
+			if (cdl)
+			{
+				fread(cdlbuf, 1, i, cdl);
+				cdlbytesleft -= i;
+				if (!cdlbytesleft)
+				{
+					fclose(cdl);
+					cdl = 0;
+				}
+				
+				// output in sections of identical cdl.
+				
+				cdli = 0;
+				while(cdli < i)
+				{
+					cdlstart = cdli;
+					cdlflag = cdlbuf[cdli++];
+					for (; cdli < i && cdlbuf[cdli] == cdlflag; ++cdli);
+					output(inputbuff + cdlstart, cdli - cdlstart, cdlflag);
+				}
+			}
+			else
+			{
+				output(inputbuff,i,NONE);
+			}
+			bytesleft-=i;
+		}
+	} while(0);
+	if(f) fclose(f);
+	if (cdl) fclose(cdl);
 }
 
 void hex(label *id,char **next) {
