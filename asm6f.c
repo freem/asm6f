@@ -56,6 +56,7 @@
 #define INITLISTSIZE 128		// initial label list size
 #define BUFFSIZE 8192			// file buffer (inputbuff, outputbuff) size
 #define STACKBUFFSIZE 512       // stack-allocated buffer size.
+#define HEADERSIZE 0x10 		// size of an ines/nes2 header
 #define WORDMAX 128				// used with getword()
 #define LINEMAX 2048			// plenty of room for nested equates
 #define MAXPASSES 7				// # of tries before giving up
@@ -524,6 +525,8 @@ FILE *outputfile=0;
 FILE *cdlfile=0;
 byte outputbuff[BUFFSIZE];
 byte inputbuff[BUFFSIZE];
+byte ines_extension[HEADERSIZE];
+byte ines_extension_mask[HEADERSIZE] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 int outcount;//bytes waiting in outputbuff
 label **labellist;  //array of label pointers (list starts from center and grows outward)
 int labels;//# of labels in labellist
@@ -1222,7 +1225,7 @@ void export_labelfiles() {
 			}
 			else{
 				// ROM
-				bank=(((*l).pos - 16 * ines_include)/16384);
+				bank=(((*l).pos - HEADERSIZE)/16384);
 				if (!bankfiles[bank]){
 					sprintf(strptr,".nes.%X.nl",bank);
 					bankfiles[bank]=fopen(filename,"w");
@@ -1324,7 +1327,7 @@ void export_mesenlabels() {
 
 		if(l->type == LABEL) {
 			//Labels in the actual code
-			if(l->pos < 16) {
+			if(l->pos < HEADERSIZE) {
 				//Ignore file header
 				continue;
 			}
@@ -1336,8 +1339,8 @@ void export_mesenlabels() {
 
 				if(c->pos < l->pos) {
 					//This comment is for a line before the current code label, write it to the file right away
-					if(c->pos >= 16) {
-						sprintf(str, "P:%04X::", (unsigned int)c->pos - 16);
+					if(c->pos >= HEADERSIZE) {
+						sprintf(str, "P:%04X::", (unsigned int)c->pos - HEADERSIZE);
 						fwrite((const void *)str, 1, strlen(str), outfile);
 						fwrite((const void *)c->text, 1, strlen(c->text), outfile);
 						fwrite("\n", 1, 1, outfile);
@@ -1354,7 +1357,7 @@ void export_mesenlabels() {
 			}
 
 			//Dump the label
-			sprintf(str, "P:%04X:%s", (unsigned int)(l->pos - 16), l->name);
+			sprintf(str, "P:%04X:%s", (unsigned int)(l->pos - HEADERSIZE), l->name);
 			fwrite((const void *)str, 1, strlen(str), outfile);
 
 			if(commenttext) {
@@ -2084,18 +2087,26 @@ void output_file()
 
 		// (insert iNES header if needed)
 		if (ines_include) {
-			byte ineshdr[16] = {'N','E','S',0x1A,
+			byte ineshdr[HEADERSIZE] = {'N','E','S',0x1A,
 								(byte)inesprg_num,
 								(byte)ineschr_num,
 								(byte)(inesmap_num << 4) | inesmir_num,
-								(byte)(inesmap_num & 0xF0) | (use_nes2 << 3) | (nes2tv_num),
+								(byte)(inesmap_num & 0xF0) | (use_nes2 << 3) | (nes2vs_num),
 								(byte)(inesmap_num >> 8) | (nes2sub_num << 4),
 								(byte)(inesprg_num >> 8) | ((ineschr_num >> 8) << 4),
 								(byte)(nes2bram_num << 4) | nes2prg_num,
 								(byte)(nes2chrbram_num << 4) | nes2chr_num,
 								(byte)nes2tv_num,
 								0,0,0};
-			if ( fwrite(ineshdr,1,16,outputfile) < (size_t)16 || fflush( outputfile ) )
+			// extensions
+			for (unsigned i = 0; i < HEADERSIZE; ++i)
+			{
+				ineshdr[i] &= ~ines_extension_mask[i];
+				ineshdr[i] |= ines_extension_mask[i] & ines_extension[i];
+			}
+			
+			// write header
+			if ( fwrite(ineshdr,1,HEADERSIZE,outputfile) < (size_t)HEADERSIZE || fflush( outputfile ) )
 				errmsg=CantWrite;
 			filepos = sizeof(ineshdr);
 			filesize = sizeof(ineshdr);
@@ -2113,7 +2124,7 @@ void output(byte *p,int size, int cdlflag) {
 	
 	// update cdl file
 	if(gencdl && !nooutput) {
-		if(cdlfile && (!ines_include || filepos >= 16)) {
+		if(cdlfile && (!ines_include || filepos >= HEADERSIZE)) {
 			int repeat = size;
 			while(repeat--) {
 				if(addr < 0x10000) {
@@ -2191,7 +2202,7 @@ void output_seek(int pos)
 				? pos
 				: filesize;
 			// cdl file is headerless
-			if (ines_include) cdlpos -= 0x10;
+			if (ines_include) cdlpos -= HEADERSIZE;
 			// clamp
 			if (cdlpos < 0) cdlpos = 0;
 			if (fflush(cdlfile))
@@ -2466,7 +2477,7 @@ void incnes(label *id, char **next) {
 		}
 		fseek(f,0,SEEK_END);
 		filesize=ftell(f);
-		if (filesize < 0x10)
+		if (filesize < HEADERSIZE)
 		{
 			errmsg = SeekOutOfRange;
 			break;
@@ -2490,8 +2501,8 @@ void incnes(label *id, char **next) {
 		}
 		
 	//file seek:
-		seekpos=0x10;
-		fseek(f,0x10,SEEK_SET);
+		seekpos=HEADERSIZE;
+		fseek(f,HEADERSIZE,SEEK_SET);
 	//get size:
 		bytesleft=filesize-seekpos;
 	//read file:
@@ -3107,17 +3118,21 @@ void inesmap(label *id, char **next) {
 	inesmap_num=eval(next, WHOLEEXP);
 
 	//ines 2.0 allows for some big numbers...
-	if(inesmap_num > 4095 || inesmap_num < 0)
+	if(inesmap_num > 0xfff || inesmap_num < 0)
 		errmsg=OutOfRange;
 	
 	ines_include = 1;
+	if (inesmap_num > 0xff)
+	{
+		ines_extension_mask[8] &= ~0x0f;
+	}
 }
 
 void incines(label *id,char **next) {
 	int filesize;
 	FILE *f=0;
 	
-	char header[ 0x10 ];
+	char header[ HEADERSIZE ];
 	int parse = 0;
 
 	do {
@@ -3163,31 +3178,37 @@ void incines(label *id,char **next) {
 		inesmap_num = 0;
 		inesmap_num |= (header[6] & 0xf0) >> 4;
 		inesmap_num |= (header[7] & 0xf0);
-		inesmap_num |= (header[8] & 0x0f);		
+		inesmap_num |= (header[8] & 0x0f) << 4;		
 		
 		// nes2
-		if (header[7] & 0x04)
-		{
-			// nes2 flag is binary 10b exactly.
-			// not sure what x1b corresponds to.
-			errmsg = InvalidHeader;
-			return;
-		}
 		use_nes2 = (header[7] & 0x0c) == 0x08;
-		nes2tv_num = (header[7] & 0x03) >> 3;
-		nes2tv_num |= header[12] & ~0x03;
-		nes2sub_num = (header[8] & 0xf0) >> 4;
-		nes2bram_num = (header[10] & 0xf0) >> 4;
-		nes2prg_num = (header[10] & 0x0f);
-		nes2chrbram_num = (header[11] & 0xf0) >> 4;
-		nes2chr_num = (header[11] & 0x0f);
-		
-		// extra garbage data?
-		if (header[13] || header[14] || header[15])
+		if (use_nes2)
 		{
-			errmsg = InvalidHeader;
-			return;
+			nes2vs_num = header[7] & 0x01;
+			nes2sub_num = (header[8] & 0xf0) >> 4;
+			nes2bram_num = (header[10] & 0xf0) >> 4;
+			nes2prg_num = (header[10] & 0x0f);
+			nes2chrbram_num = (header[11] & 0xf0) >> 4;
+			nes2chr_num = (header[11] & 0x0f);
+			nes2tv_num = header[12] & 0x03;
 		}
+		
+		// there are some bits in the header that we don't
+		// understand, so to ensure these parts of the header are preserved,
+		// we store them as unrecognized extension data.
+		byte mask[] = {
+			0   , 0   , 0   , 0   ,
+			0   , 0   , 0   , 0x06,
+			0   , 0   , 0   , 0   ,
+			0xff, 0xff, 0xff, 0xff   
+		};
+		if (!use_nes2)
+		{
+			// iNES format only strictly defines up to byte 7.
+			memset(mask + 0x8, 0xff, HEADERSIZE - 0x8);
+		}
+		memcpy(ines_extension, header, HEADERSIZE);
+		memcpy(ines_extension_mask, mask, HEADERSIZE);
 	}
 }
 
@@ -3198,6 +3219,8 @@ void nes2chrram(label *id, char **next) {
 		errmsg=OutOfRange;
 	
 	ines_include = 1; use_nes2 = 1;
+	ines_extension_mask[7] &= ~0x0c;
+	ines_extension_mask[11] &= ~0x0f;
 }
 
 void nes2prgram(label *id, char **next) {
@@ -3207,6 +3230,8 @@ void nes2prgram(label *id, char **next) {
 		errmsg=OutOfRange;
 	
 	ines_include = 1; use_nes2 = 1;
+	ines_extension_mask[7] &= ~0x0c;
+	ines_extension_mask[10] &= ~0x0f;
 }
 
 void nes2sub(label *id, char **next) {
@@ -3216,6 +3241,8 @@ void nes2sub(label *id, char **next) {
 		errmsg=OutOfRange;
 	
 	ines_include = 1; use_nes2 = 1;
+	ines_extension_mask[7] &= ~0x0c;
+	ines_extension_mask[8] &= ~0xf0;
 }
 
 void nes2tv(label *id, char **next) {
@@ -3232,11 +3259,14 @@ void nes2tv(label *id, char **next) {
 		errmsg=OutOfRange;
 	
 	ines_include = 1; use_nes2 = 1;
+	ines_extension_mask[7] &= ~0x0c;
+	ines_extension_mask[12] &= ~0x03;
 }
 
 void nes2vs(label *id, char **next) {
 	nes2vs_num = 1;
 	ines_include = 1; use_nes2 = 1;
+	ines_extension_mask[7] &= ~0x0d;
 }
 
 void nes2bram(label *id, char **next) { 
@@ -3246,6 +3276,8 @@ void nes2bram(label *id, char **next) {
 		errmsg=OutOfRange;
 	
 	ines_include = 1; use_nes2 = 1;
+	ines_extension_mask[7] &= ~0x0c;
+	ines_extension_mask[10] &= ~0xf0;
 }
 
 void nes2chrbram(label *id, char **next) {
@@ -3255,4 +3287,6 @@ void nes2chrbram(label *id, char **next) {
 		errmsg=OutOfRange;
 	
 	ines_include = 1; use_nes2 = 1;
+	ines_extension_mask[7] &= ~0x0c;
+	ines_extension_mask[11] &= ~0xf0;
 }
