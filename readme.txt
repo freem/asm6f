@@ -40,6 +40,7 @@ Options:
         -f         export Lua symbol file
         -c         export .cdl for use with FCEUX/Mesen
         -m         export Mesen-compatible label file (.mlb)
+        -i         build .ips patch file instead of binary output.
         Default output is <sourcefile>.bin
         Default listing is <sourcefile>.lst
 
@@ -258,6 +259,22 @@ SKIPREL x
     
         SEEKREL x
         BASE $+x
+
+COMPARE / ENDCOMPARE
+    
+    when enabled, every byte that overwrites a previously written byte
+    will be compared to the current fillvalue (see FILLVALUE), and if
+    they differ, a fatal error will be thrown.
+    
+    This is useful, for example, to assert that one doesn't overwrite
+    any important data while patching.
+        
+CLEARPATCH
+
+    Clears all data written so far in the .ips patch.
+    You can use this to specify that the previous data written is not part of the patch.
+    This is ignored when the -i flag is not used.
+
 
 --------------------------------------------------------------
 iNES directives

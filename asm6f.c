@@ -56,6 +56,7 @@
 #define INITLISTSIZE 128		// initial label list size
 #define BUFFSIZE 8192			// file buffer (inputbuff, outputbuff) size
 #define STACKBUFFSIZE 512       // stack-allocated buffer size.
+#define IPS_RLE_EXTRACT 0x20    // if this many bytes in a row is encountered, use RLE encoding.
 #define HEADERSIZE 0x10 		// size of an ines/nes2 header
 #define WORDMAX 128				// used with getword()
 #define LINEMAX 2048			// plenty of room for nested equates
@@ -171,6 +172,7 @@ void nothing(label*,char**);
 void include(label*,char**);
 void incbin(label*,char**);
 void incnes(label*,char**);
+void clearpatch(label*,char**);
 void dw(label*,char**);
 void db(label*,char**);
 void dl(label*,char**);
@@ -194,6 +196,8 @@ void ende(label*,char**);
 void ignorenl(label*,char**);		// [freem addition] "ignorenl"
 void endinl(label*,char**);		// [freem addition] "endinl"
 void fillval(label*,char**);
+void compfill(label*,char**);   // [NaOH addition]
+void endcompfill(label*,char**);   // [NaOH addition]
 void expandmacro(label*,char**,int,char*);
 void expandrept(int,char*);
 void make_error(label*,char**);
@@ -222,6 +226,29 @@ int filepos=0;
 
 // [NaOH] keeps track of last byte edited in file.
 int filesize=0;
+
+// ips offset for the start of the output buffer.
+// if output buffer is empty, this should agree with filepos.
+int ips_outpos=0;
+
+typedef struct {
+	int offset;
+	int length;
+	byte* contents; // if nullptr, rle.
+	byte rle_content;
+	int suppress; // if true, don't write to ips output.
+} ips_hunk;
+
+// list of pointers to IPS hunks
+ips_hunk** ips_hunk_list;
+int ips_hunk_list_c;
+int ips_hunk_list_max = 0;
+
+void ips_append_hunk();
+// sorts and combines adjacent/overlapping hunks.
+void ips_simplify_hunks();
+// writes patch to output file
+void ips_write(FILE* file);
 
 enum optypes {ACC,IMM,IND,INDX,INDY,ZPX,ZPY,ABSX,ABSY,ZP,ABS,REL,IMP};
 int opsize[]={0,1,2,1,1,1,1,2,2,1,2,1,0};
@@ -426,6 +453,7 @@ struct {
 		{"INCLUDE",include},{"INCSRC",include},
 		{"INCBIN",incbin},{"BIN",incbin},
 		{"INCNES",incnes},
+		{"CLEARPATCH",clearpatch},
 		{"HEX",hex},
 		{"WORD",dw},{"DW",dw},{"DCW",dw},{"DC.W",dw},
 		{"BYTE",db},{"DB",db},{"DCB",db},{"DC.B",db},
@@ -441,6 +469,8 @@ struct {
 		{"IGNORENL",ignorenl},
 		{"ENDINL",endinl},
 		{"FILLVALUE",fillval},
+		{"COMPARE", compfill},
+		{"ENDCOMPARE", endcompfill},
 		{"DL",dl},
 		{"DH",dh},
 		{"ERROR",make_error},
@@ -473,8 +503,10 @@ char MissingOperand[]="Missing operand.";
 char DivZero[]="Divide by zero.";
 char BadAddr[]="Can't determine address.";
 char NeedName[]="Need a name.";
+char CantCreateFile[]="Can't create output file.";
 char CantOpen[]="Can't open file.";
 char CantWrite[]="Write error.";
+char CompFailed[]="Compare failed. Byte at 0x________ was 0x++.";
 char CantSeek[]="Can't seek in file.";
 char CantSeekEnum[]="Can't seek in enum mode.";
 char InvalidHeader[]="iNES header invalid.";
@@ -511,6 +543,7 @@ int skipline[IFNESTS];//1 on an IF statement that is false
 const char *errmsg;
 char *inputfilename=0;
 char *outputfilename=0;
+char *ipsfilename=0;
 char *listfilename=0;
 char *cdlfilename=0;
 int verboselisting=0;//expand REPT loops in listing
@@ -518,6 +551,7 @@ int genfceuxnl=0;//[freem addition] generate FCEUX .nl files for symbolic debugg
 int genmesenlabels=0; //generate label files for use with Mesen
 int gencdl=0; //generate CDL file
 int genlua=0;//generate lua symbol file
+int genips=0; //[NaOH] generate .ips patch.
 const char *listerr=0;//error message for list file
 label *labelhere;//points to the label being defined on the current line (for EQU, =, etc)
 FILE *listfile=0;
@@ -541,6 +575,7 @@ int lastcommentpos = -1;
 int nooutput=0;//supress output (use with ENUM)
 int nonl=0;//[freem addition] supress output to .nl files
 int defaultfiller;//default fill value
+int comparefiller=0; // compare on write to defaultfiller
 int insidemacro=0;//macro/rept is being expanded
 int verbose=1;
 
@@ -1824,6 +1859,7 @@ void showhelp(void) {
 	puts("\t-f\t\texport Lua symbol file");
 	puts("\t-c\t\texport .cdl for use with FCEUX/Mesen");
 	puts("\t-m\t\texport Mesen-compatible label file (.mlb)\n");
+	puts("\t-i\t\tbuild .ips format patch file instead of binary.");
 	puts("See README.TXT for more info.\n");
 }
 
@@ -1900,6 +1936,9 @@ int main(int argc,char **argv) {
 				case 'f':
 					genlua=1;
 					break;
+				case 'i':
+					genips=1;
+					break;
 				default:
 					fatal_error("unknown option: %s",argv[i]);
 			}
@@ -1920,6 +1959,10 @@ int main(int argc,char **argv) {
 	
 	if(!outputfilename) {
 		outputfilename = replace_ext(inputfilename, ".bin");
+	}
+	
+	if(genips) {
+		ipsfilename = replace_ext(outputfilename, ".ips");
 	}
 
 	if(listfilename==true_ptr) {	//if listfile was wanted but no name was specified, use srcfile.LST
@@ -1985,11 +2028,27 @@ int main(int argc,char **argv) {
 			message("%s written (%i bytes).\n",outputfilename,filesize);
 		} else
 			remove(outputfilename);
-	} else {
+	} else if (!genips) {
 		if(!error)
 			fputs("nothing to do!", stderr);
 		error = 1;
 	}
+	
+	if (genips)
+	{
+		puts(ipsfilename);
+		FILE* ipsfile = fopen(ipsfilename, "wb");
+		if (!ipsfile)
+		{
+			errmsg = CantWrite;
+		}
+		else
+		{
+			ips_write(ipsfile);
+			fclose(ipsfile);
+		}
+	} 
+	
 	if(listfile)
 		listline(0,0);
 
@@ -2044,12 +2103,307 @@ char* replace_ext(char* in, char* ext)
 byte listbuff[LISTMAX];
 int listcount;
 
+ips_hunk* malloc_ips_hunk_regular(size_t offset, byte* p, size_t count)
+{
+	assert(count > 0);
+	
+	ips_hunk* hunk = (ips_hunk*)my_malloc(sizeof(ips_hunk));
+	hunk->offset = offset;
+	hunk->length = count;
+	hunk->contents = (byte*)my_malloc(count);
+	hunk->suppress = 0;
+	memcpy(hunk->contents, p, count);
+	return hunk;
+}
+
+ips_hunk* malloc_ips_hunk_rle(size_t offset, byte b, size_t count)
+{
+	assert(count > 0);
+	
+	ips_hunk* hunk = (ips_hunk*)my_malloc(sizeof(ips_hunk));
+	hunk->offset = offset;
+	hunk->length = count;
+	hunk->contents = 0;
+	hunk->rle_content = b;
+	hunk->suppress = 0;
+	return hunk;
+}
+
+void ips_append_hunk(ips_hunk* hunk)
+{
+	// resize array
+	if (ips_hunk_list_max == 0)
+	{
+		ips_hunk_list_max = 0x40;
+		ips_hunk_list = (ips_hunk**) my_malloc(sizeof(ips_hunk*) * ips_hunk_list_max);
+	}
+	else if (ips_hunk_list_max <= ips_hunk_list_c + 1)
+	{
+		// copy to new array, 4x larger.
+		ips_hunk** prev = ips_hunk_list;
+		ips_hunk_list_max *= 4;
+		ips_hunk_list = (ips_hunk**) my_malloc(sizeof(ips_hunk*) * ips_hunk_list_max);
+		memcpy(ips_hunk_list, prev, ips_hunk_list_c * sizeof(ips_hunk*));
+		free(prev);
+	}
+	
+	ips_hunk_list[ips_hunk_list_c++] = hunk;
+}
+
+void write_ips_hunk_regular(FILE* f, size_t offset, byte *p, size_t count)
+{
+	assert(count <= 0xffff);
+	byte header[5] = {
+		(offset & 0xff0000) >> 16,
+		(offset & 0xff00) >> 8,
+		(offset & 0xff),
+		(count & 0xff00) >> 8,
+		count & 0xff
+	};
+	
+	// write header
+	if ( fwrite(header, 5, 1, f) < 1 )
+	{
+		errmsg=CantWrite;
+		return;
+	}
+	
+	// write payload
+	if (fwrite(p,1,count,f) < count || fflush(f))
+	{
+		errmsg=CantWrite;
+	}
+}
+
+void write_ips_hunk_rle(FILE* f, size_t offset, byte b, size_t count)
+{
+	assert(count <= 0xffff);
+	byte header[8] = {
+		(offset & 0xff0000) >> 16,
+		(offset & 0xff00) >> 8,
+		(offset & 0xff),
+		0,
+		0,
+		(count & 0xff00) >> 8,
+		count & 0xff,
+		b
+	};
+	
+	if (
+		fwrite(header, 8, 1, f) < 1
+		|| fflush(f)
+	)
+	{
+		errmsg=CantWrite;
+	}
+}
+
+// writes all hunks to the output file.
+void ips_write(FILE* output)
+{
+	assert(genips);
+	
+	// write IPS header.
+	if ( fwrite("PATCH", 5, 1, output) < 1 )
+	{
+		errmsg=CantWrite;
+		return;
+	}
+	
+	// write hunks
+	for (size_t i = 0; i < ips_hunk_list_c; ++i)
+	{
+		ips_hunk* hunk = ips_hunk_list[i];
+		if (hunk->suppress) continue;
+		if (hunk->contents)
+		{
+			write_ips_hunk_regular(output, hunk->offset, hunk->contents, hunk->length);
+		}
+		else
+		{
+			write_ips_hunk_rle(output, hunk->offset, hunk->rle_content, hunk->length);
+		}
+	}
+	
+	if ( fwrite("EOF", 3, 1, output) < 1 )
+	{
+		errmsg=CantWrite;
+		return;
+	}
+}
+
+void flush_output_ips()
+{	
+	// write IPS hunks.
+	if (outcount == 0)
+	{
+		// do nothing.
+	}
+	else if (outcount <= 3)
+	{
+		// RLE is never a good choice for hunks this small.
+		ips_append_hunk(malloc_ips_hunk_regular(ips_outpos, outputbuff, outcount));
+	}
+	else
+	{
+		// split into RLE and non-RLE hunks
+		size_t hunk_start = 0;
+		size_t rle_start = 0;
+		byte rle_cmp = outputbuff[0];
+		for (size_t i = 0; i <= outcount; ++i)
+		{
+			int b = (i == outcount)
+				? -1
+				: outputbuff[i];
+			if (b != (int) rle_cmp)
+			{
+				if (i - rle_start >= IPS_RLE_EXTRACT)
+				{
+					if (rle_start > hunk_start)
+					{
+						ips_append_hunk(malloc_ips_hunk_regular(
+							ips_outpos + hunk_start, outputbuff + hunk_start, rle_start - hunk_start
+						));
+					}
+					ips_append_hunk(malloc_ips_hunk_rle(
+						ips_outpos + rle_start, rle_cmp, i - rle_start
+					));
+					hunk_start = i;
+				}
+				else if (b == -1)
+				{
+					ips_append_hunk(malloc_ips_hunk_regular(
+						ips_outpos + hunk_start, outputbuff + hunk_start, i - hunk_start
+					));
+					break;
+				}
+				
+				rle_start = i;
+				rle_cmp = b;
+			}
+		}
+	}
+	ips_outpos += outcount;
+}
+
+// removes all hunks from the list.
+void ips_clear()
+{
+	// force output flush because
+	// output buffer may be written to ips eventually.
+	flush_output(1);
+	
+	// clear list.
+	for (size_t i = 0; i < ips_hunk_list_c; ++i)
+	{
+		ips_hunk* hunk = ips_hunk_list[i];
+		if (hunk->contents)
+		{
+			free(hunk->contents);
+		}
+		free(hunk);
+	}
+	
+	ips_hunk_list_c = 0;
+}
+
+// gets cmp value in ips file
+int ips_get_cmp_value(size_t location)
+{
+	assert(genips);
+	int value = -1;
+	for (size_t i = 0; i < ips_hunk_list_c; ++i)
+	{
+		ips_hunk* hunk = ips_hunk_list[i];
+		if (hunk->offset <= location && location < hunk->offset + hunk->length)
+		{
+			if (hunk->contents)
+			{
+				value = hunk->contents[location - hunk->offset];
+			}
+			else
+			{
+				value = hunk->rle_content;
+			}
+		}
+	}
+	return value;
+}
+
+// gets output value at the given position
+// negative value if couldn't read it or not set
+int get_cmp_value(size_t location)
+{
+	if (genips)
+	{
+		return ips_get_cmp_value(location);
+	}
+	else
+	{
+		// TODO optimize
+		int b;
+		size_t prevseek = ftell(outputfile);
+		fseek(outputfile, location, SEEK_SET);
+		if (fread(&b,1,1,outputfile) < 1)
+		{
+			b = -1;
+		}
+		fseek(outputfile, prevseek, SEEK_SET);
+		return b;
+	}
+}
+
+// flushes output buffer
 void flush_output(int force)
 {
-	if(outcount>=BUFFSIZE || force) {
-		if(fwrite(outputbuff,1,outcount,outputfile)<outcount || fflush(outputfile))
-			errmsg=CantWrite;
+	if(outcount>=BUFFSIZE || force || (genips && outcount >= 0xffff)) {
+		
+		// flush ips output
+		if (genips) {
+			flush_output_ips();
+		}
+		
+		// flush binary output
+		if (outputfile)
+		{
+			if(fwrite(outputbuff,1,outcount,outputfile)<outcount || fflush(outputfile))
+				errmsg=CantWrite;
+		}
+			
+		// clear buffer
 		outcount=0;
+	}
+}
+
+// directly adds bytes to output buffer.
+void output_buffer(byte* p, size_t count)
+{
+	for (size_t i = 0; i < count; ++i)
+	{
+		// compare
+		if (comparefiller)
+		{
+			int b = get_cmp_value(filepos + outcount);
+			if (b != defaultfiller && b >= 0)
+			{
+				errmsg = CompFailed;
+				int loc = filepos + outcount;
+				sprintf(CompFailed + 26, "%0*x was 0x%x.", 6, loc, b);
+				return;
+			}
+		}
+		
+		// write to outputbuffer
+		outputbuff[outcount++]=*p;
+		
+		p++;
+		
+		flush_output(0);
+		
+		if (errmsg)
+		{
+			return;
+		}
 	}
 }
 
@@ -2075,13 +2429,21 @@ void output_file()
 	// when starting a new pass, reopen file and possibly insert iNES header.
 	if(oldpass!=pass) {
 		oldpass=pass;
+		
+		if (genips)
+		{
+			ips_clear();
+			ips_outpos = 0;
+		}
+		
+		// binary output.
 		if(outputfile) fclose(outputfile);
 		outputfile=fopen(outputfilename,"wb+");
 		assert(filepos == 0);
 		assert(filesize == 0);
 		outcount=0;
 		if(!outputfile) {
-			errmsg="Can't create output file.";
+			errmsg=CantCreateFile;
 			return;
 		}
 
@@ -2106,8 +2468,7 @@ void output_file()
 			}
 			
 			// write header
-			if ( fwrite(ineshdr,1,HEADERSIZE,outputfile) < (size_t)HEADERSIZE || fflush( outputfile ) )
-				errmsg=CantWrite;
+			output_buffer(ineshdr, HEADERSIZE);
 			filepos = sizeof(ineshdr);
 			filesize = sizeof(ineshdr);
 		}
@@ -2145,25 +2506,20 @@ void output(byte *p,int size, int cdlflag) {
 	if (nooutput)
 		return;
 	
-	if(!outputfile) return;
+	if(!outputfile || !genips) return;
 	
 	// write data.
+	output_buffer(p, size);
+	
 	while(size--) {
 		if(listfile && listcount<LISTMAX)
 			listbuff[listcount]=*p;
 		listcount++;
+		p++;
 		
 		// update filepos and filesize
 		filepos++;
 		if (filepos > filesize) filesize = filepos;
-		
-		// write to outputbuffer
-		outputbuff[outcount++]=*p;
-		
-		// advance source
-		p++;
-		
-		flush_output(0);
 	}
 }
 
@@ -2187,7 +2543,7 @@ void output_seek(int pos)
 		errmsg = CantSeekEnum;
 		return;
 	}
-	
+		
 	// ensure output file exists.
 	output_file();
 	
@@ -2221,29 +2577,36 @@ void output_seek(int pos)
 	
 	// FIXME: we don't actually need a file in order to set the next output position.
 	// Additionally, there is no need to pad until a write actually occurs.
-
-	// seek in outputfile.
-	if (pos > filesize)
-	{
-		// past end of file -- pad with zeros
-		filepos = filesize;
-		fseek(outputfile, filepos, SEEK_SET);
-		while (filepos < pos)
-		{
-			output(&padbyte, 1, NONE);
-		}
-	}
-	else if (pos < filesize)
-	{
-		// within file bounds -- seek there.
-		filepos = pos;
-		fseek(outputfile, filepos, SEEK_SET);
-	}
 	
-	if (filepos != ftell(outputfile))
+	if (outputfile)
 	{
-		errmsg = CantSeek;
-	}
+		// seek in outputfile.
+		if (pos > filesize)
+		{
+			// past end of file -- pad with zeros
+			filepos = filesize;
+			ips_outpos = filepos;
+			fseek(outputfile, filepos, SEEK_SET);
+			while (filepos < pos)
+			{
+				output(&padbyte, 1, NONE);
+			}
+		}
+		else if (pos < filesize)
+		{
+			// within file bounds -- seek there.
+			filepos = pos;
+			fseek(outputfile, filepos, SEEK_SET);
+		}
+	
+		if (filepos != ftell(outputfile))
+		{
+			errmsg = CantSeek;
+		}
+	} 
+	
+	filepos = pos;
+	ips_outpos = pos;
 	
 	// ensures the above calls to output (for padding) won't modify addr.
 	addr = prevaddr;
@@ -2543,6 +2906,23 @@ void incnes(label *id, char **next) {
 	} while(0);
 	if(f) fclose(f);
 	if (cdl) fclose(cdl);
+}
+
+void clearpatch(label *id, char **next)
+{	
+	if (genips)
+	{
+		flush_output(1);
+		
+		// mark sections as non-output.
+		// we don't remove them because we may wish to
+		// read from them (e.g. compare)
+		for (size_t i = 0; i < ips_hunk_list_c; ++i)
+		{
+			ips_hunk* hunk = ips_hunk_list[i];
+			hunk->suppress = 1;
+		}
+	}
 }
 
 void hex(label *id,char **next) {
@@ -3064,6 +3444,14 @@ void endinl(label *id, char **next) {
 void fillval(label *id,char **next) {
 	dependant=0;
 	defaultfiller=eval(next,WHOLEEXP);
+}
+
+void compfill(label *id,char **next) {
+	comparefiller=1;
+}
+
+void endcompfill(label *id,char **next) {
+	comparefiller=0;
 }
 
 void make_error(label *id,char **next) {
