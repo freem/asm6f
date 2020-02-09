@@ -231,22 +231,20 @@ int filesize=0;
 // if output buffer is empty, this should agree with filepos.
 int ips_outpos=0;
 
-typedef struct {
+typedef struct ips_hunk_t {
 	int offset;
 	int length;
 	byte* contents; // if nullptr, rle.
 	byte rle_content;
 	int suppress; // if true, don't write to ips output.
+	struct ips_hunk_t* next;
 } ips_hunk;
 
-// list of pointers to IPS hunks
-ips_hunk** ips_hunk_list;
-int ips_hunk_list_c;
-int ips_hunk_list_max = 0;
+// linked list of IPS hunks
+ips_hunk* ips_hunk_head = 0;
+ips_hunk* ips_hunk_tail = 0;
 
 void ips_append_hunk();
-// sorts and combines adjacent/overlapping hunks.
-void ips_simplify_hunks();
 // writes patch to output file
 void ips_write(FILE* file);
 
@@ -2112,6 +2110,7 @@ ips_hunk* malloc_ips_hunk_regular(size_t offset, byte* p, size_t count)
 	hunk->length = count;
 	hunk->contents = (byte*)my_malloc(count);
 	hunk->suppress = 0;
+	hunk->next = 0;
 	memcpy(hunk->contents, p, count);
 	return hunk;
 }
@@ -2126,28 +2125,24 @@ ips_hunk* malloc_ips_hunk_rle(size_t offset, byte b, size_t count)
 	hunk->contents = 0;
 	hunk->rle_content = b;
 	hunk->suppress = 0;
+	hunk->next = 0;
 	return hunk;
 }
 
 void ips_append_hunk(ips_hunk* hunk)
 {
-	// resize array
-	if (ips_hunk_list_max == 0)
+	hunk->next = 0;
+	
+	if (ips_hunk_head == 0)
 	{
-		ips_hunk_list_max = 0x40;
-		ips_hunk_list = (ips_hunk**) my_malloc(sizeof(ips_hunk*) * ips_hunk_list_max);
+		ips_hunk_head = hunk;
 	}
-	else if (ips_hunk_list_max <= ips_hunk_list_c + 1)
+	else
 	{
-		// copy to new array, 4x larger.
-		ips_hunk** prev = ips_hunk_list;
-		ips_hunk_list_max *= 4;
-		ips_hunk_list = (ips_hunk**) my_malloc(sizeof(ips_hunk*) * ips_hunk_list_max);
-		memcpy(ips_hunk_list, prev, ips_hunk_list_c * sizeof(ips_hunk*));
-		free(prev);
+		ips_hunk_tail->next = hunk;
 	}
 	
-	ips_hunk_list[ips_hunk_list_c++] = hunk;
+	ips_hunk_tail = hunk;
 }
 
 void write_ips_hunk_regular(FILE* f, size_t offset, byte *p, size_t count)
@@ -2198,6 +2193,144 @@ void write_ips_hunk_rle(FILE* f, size_t offset, byte b, size_t count)
 	}
 }
 
+void ips_free_hunk(ips_hunk* hunk)
+{
+	if (hunk->contents)
+	{
+		free(hunk->contents);
+	}
+	free(hunk);
+}
+
+int ips_changed = 0;
+
+// combines/swaps adjacent/overlapping hunks.
+// bubble sort ips entries.
+// returns true if a change was made.
+void ips_simplify_hunk(ips_hunk** hunk_ptr)
+{
+	ips_hunk* hunk;
+	ips_hunk* next;
+	
+tail_recurse:
+	hunk = *hunk_ptr;
+	if (hunk == 0) return;
+	next = hunk->next;
+	
+	// this node is not used.
+	if (hunk->suppress || hunk->length == 0) goto remove_node;
+	
+	// update tail
+	ips_hunk_tail = hunk;
+	
+	// reached end.
+	if (next == 0) return;
+	
+	// don't merge with suppressed chunk
+	if (next->suppress)
+	{
+		// continue
+		hunk_ptr = &hunk->next;
+		goto tail_recurse;
+	};
+	
+	// totally contained in the next one?
+	if (hunk->offset >= next->offset
+		&& hunk->offset + hunk->length <= next->offset + next->length)
+	{
+		goto remove_node;
+	}
+	
+	// the next one starts after this one
+	if (next->offset > hunk->offset)
+	{
+		// but they overlap
+		if (hunk->offset + hunk->length > next->offset)
+		{
+			// truncate this one
+			ips_changed = 1;
+			hunk->length = next->offset - hunk->offset;
+		}
+		else
+		{
+			// no change; proceed to the next one.
+			hunk_ptr = &hunk->next;
+			goto tail_recurse;
+		}
+	}
+	// the next one is totally contained in this one?
+	else if (next->offset >= hunk->offset
+		&& next->offset + next->length <= hunk->offset + hunk->length)
+	{
+		ips_changed = 1;
+		
+		// duplicate us to appear after theirs
+		if (next->offset + next->length < hunk->offset + hunk->length)
+		{
+			ips_hunk* newhunk = (ips_hunk*)my_malloc(sizeof(ips_hunk));
+			newhunk->offset = next->offset + next->length;
+			newhunk->length = hunk->offset + hunk->length - newhunk->offset;
+			if (hunk->contents)
+			{
+				hunk->contents = (byte*)my_malloc(newhunk->length);
+				memcpy(
+					hunk->contents,
+					hunk->contents + newhunk->offset - hunk->offset,
+					newhunk->length
+				);
+			}
+			else
+			{
+				newhunk->contents = 0;
+				newhunk->rle_content = hunk->rle_content;
+			}
+			newhunk->next = next->next;
+		}
+		
+		// truncate our length
+		hunk->length = next->offset - hunk->offset;
+	}
+	// the next one starts before this one
+	else if (next->offset < hunk->offset)
+	{
+		ips_changed = 1;
+		
+		if (next->offset + next->length > hunk->offset)
+		{
+			// not disjoint.
+			// truncate ours from the left.
+			
+			int removed = next->offset + next->length - hunk->offset;
+			
+			hunk->length -= removed;
+			if (hunk->contents)
+			{
+				memmove(hunk->contents, hunk->contents + removed, hunk->length);
+			}
+		}
+		
+		// swap
+		*hunk_ptr = next;
+		hunk->next = next->next;
+		next->next = hunk;
+		
+		// proceed from the new location of this hunk.
+		hunk_ptr = &next->next;
+		goto tail_recurse;
+	}
+	
+	if (0)
+	{
+	remove_node:
+		ips_changed = 1;
+		*hunk_ptr = next;
+		ips_free_hunk(hunk);
+	}
+	
+	// retry this node
+	goto tail_recurse;
+}
+
 // writes all hunks to the output file.
 void ips_write(FILE* output)
 {
@@ -2210,10 +2343,16 @@ void ips_write(FILE* output)
 		return;
 	}
 	
+	// O(n^2)
+	while (1) {
+		ips_simplify_hunk(&ips_hunk_head);
+		if (!ips_changed) break;
+		ips_changed = 0;
+	};
+	
 	// write hunks
-	for (size_t i = 0; i < ips_hunk_list_c; ++i)
+	for (ips_hunk* hunk = ips_hunk_head; hunk != 0; hunk = hunk->next)
 	{
-		ips_hunk* hunk = ips_hunk_list[i];
 		if (hunk->suppress) continue;
 		if (hunk->contents)
 		{
@@ -2294,17 +2433,19 @@ void ips_clear()
 	flush_output(1);
 	
 	// clear list.
-	for (size_t i = 0; i < ips_hunk_list_c; ++i)
+	for (ips_hunk* hunk = ips_hunk_head; hunk != 0; )
 	{
-		ips_hunk* hunk = ips_hunk_list[i];
 		if (hunk->contents)
 		{
 			free(hunk->contents);
 		}
-		free(hunk);
+		ips_hunk* tmp = hunk;
+		hunk = hunk->next;
+		free(tmp);
 	}
 	
-	ips_hunk_list_c = 0;
+	ips_hunk_head = 0;
+	ips_hunk_tail = 0;
 }
 
 // gets cmp value in ips file
@@ -2312,9 +2453,8 @@ int ips_get_cmp_value(size_t location)
 {
 	assert(genips);
 	int value = -1;
-	for (size_t i = 0; i < ips_hunk_list_c; ++i)
+	for (ips_hunk* hunk = ips_hunk_head; hunk != 0; hunk = hunk->next)
 	{
-		ips_hunk* hunk = ips_hunk_list[i];
 		if (hunk->offset <= location && location < hunk->offset + hunk->length)
 		{
 			if (hunk->contents)
@@ -2917,9 +3057,8 @@ void clearpatch(label *id, char **next)
 		// mark sections as non-output.
 		// we don't remove them because we may wish to
 		// read from them (e.g. compare)
-		for (size_t i = 0; i < ips_hunk_list_c; ++i)
+		for (ips_hunk* hunk = ips_hunk_head; hunk != 0; hunk = hunk->next)
 		{
-			ips_hunk* hunk = ips_hunk_list[i];
 			hunk->suppress = 1;
 		}
 	}
