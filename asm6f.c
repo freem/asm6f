@@ -2523,7 +2523,7 @@ void output_buffer(byte* p, size_t count)
 		// compare
 		if (comparefiller)
 		{
-			int b = get_cmp_value(filepos + outcount);
+			int b = get_cmp_value(filepos + i);
 			if (b != defaultfiller && b >= 0)
 			{
 				errmsg = CompFailed;
