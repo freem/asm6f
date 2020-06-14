@@ -2646,7 +2646,7 @@ void output(byte *p,int size, int cdlflag) {
 	if (nooutput)
 		return;
 	
-	if(!outputfile || !genips) return;
+	if(!outputfile && !genips) return;
 	
 	// write data.
 	output_buffer(p, size);
