@@ -9,6 +9,7 @@
 	* [Sour] Add support for .cdl file generation, for use with FCEUX and Mesen.
 	* [Sour] Add support for Mesen-compatible (.mlb) label export.
 	* [freem] Fixed issue where the last symbol would not appear in an .nl file.
+	* [controllerhead] +/- labels do not break @local scope
 
 1.6 + freem modifications
 	Added preliminary support for undocumented/illegal opcodes.
@@ -1365,7 +1366,7 @@ void addlabel(char *word, int local) {
 	if(p && local && !(*p).scope && (*p).type!=VALUE) //if it's global and we're local
 		p=0;//pretend we didn't see it (local label overrides global of the same name)
 	//global labels advance scope
-	if(c!=LOCALCHAR && !local) {
+	if(c!=LOCALCHAR && !local && c!= '+' && c != '-') {
 		scope=nextscope++;
 	}
 	if(!p) {//new label
