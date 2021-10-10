@@ -6,6 +6,8 @@ With modifications by freem, nicklausw, and Sour
 
 ASM6f is a fork of ASM6, primarily targeted at NES/Famicom development.
 
+See readme-original.txt for the features of ASM6.
+
 --------------------------------------------------------------
 Features compared to stock ASM6
 --------------------------------------------------------------
@@ -39,6 +41,7 @@ Options:
         -f         export Lua symbol file
         -c         export .cdl for use with FCEUX/Mesen
         -m         export Mesen-compatible label file (.mlb)
+        -i         build .ips patch file instead of binary output.
         Default output is <sourcefile>.bin
         Default listing is <sourcefile>.lst
 
@@ -212,6 +215,68 @@ HUNSTABLE
                 HUNSTABLE
                 xaa #7
 
+INCNES
+    
+    Includes the given NES file in its entirety, reading its header.
+    Fatal error if the header is invalid.
+    
+    Similar to using both of the following commands:
+    
+        INCINES "file.nes"
+        INCBIN "file.nes", $10
+        
+    However, if a CDL file (i.e. "file.cdl") exists with the same
+    basename as as the included .nes file, then that CDL data will
+    be used. Otherwise, the CDL data is set to NONE. See the .c flag
+    for details.
+
+SEEKABS x
+
+    Sets the output position in the file. This permits
+    overwriting data or code that was previously written.
+    
+    When seeking past the end of the file, the file will be padded
+    up to the seek point.
+    
+    The program address ($) is not modified by this directive.
+    
+SEEKREL x
+
+    As above, but relative to the current output location.
+    
+    The program address ($) is not modified by this directive.
+    
+SKIPREL x
+
+    Skips x bytes without writing -- though padding will be used if skipping
+    past the end of the file.
+    
+    The file position and program address are both modified by this directive.
+    
+    There is no SKIPABS directive because the program address ($) and file output
+    location are not co-absolute; they may be offset from each other and need not agree.
+    
+    Identical to:
+    
+        SEEKREL x
+        BASE $+x
+
+COMPARE / ENDCOMPARE
+    
+    when enabled, every byte that overwrites a previously written byte
+    will be compared to the current fillvalue (see FILLVALUE), and if
+    they differ, a fatal error will be thrown.
+    
+    This is useful, for example, to assert that one doesn't overwrite
+    any important data while patching.
+        
+CLEARPATCH
+
+    Clears all data written so far in the .ips patch.
+    You can use this to specify that the previous data written is not part of the patch.
+    This is ignored when the -i flag is not used.
+
+
 --------------------------------------------------------------
 iNES directives
 --------------------------------------------------------------
@@ -251,6 +316,11 @@ NES2BRAM x
 
 NES2CHRBRAM x
         Amount of battery-packed CHR RAM in NES ROM.
+        
+INCINES file.nes
+    Reads the nes header from the given binary file.
+    Reads both iNES and NES2 headers.
+    Fatal error if the header is invalid.
 
 --------------------------------------------------------------
 loopy's original To-Do List

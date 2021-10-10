@@ -1,6 +1,12 @@
 /* asm6f - asm6 with modifications for NES/Famicom development */
 
 /*  asm6f History:
+1.7
+	* [NaOH] read iNES/NES2 header from existing .nes file
+	* [NaOH] seek/skip to specific locations without padding,
+	  allowing overwrites of existing data.
+	* [NaOH] fixed issue when generating .nl file when ORG is unset.
+	
 1.6 + f002
 	* [nicklausw] Added new directives for INES header generation.
 	* [nicklausw] Put unstable/highly unstable opcode use behind directives,
@@ -42,13 +48,17 @@
 #include <stddef.h>
 #include <ctype.h>
 #include <stdarg.h>
+#include <assert.h>
 
-#define VERSION "1.6"
+#define VERSION "1.7"
 
 #define addr firstlabel.value	// '$' value
 #define NOORIGIN -0x40000000	// nice even number so aligning works before origin is defined
 #define INITLISTSIZE 128		// initial label list size
 #define BUFFSIZE 8192			// file buffer (inputbuff, outputbuff) size
+#define STACKBUFFSIZE 512       // stack-allocated buffer size.
+#define IPS_RLE_EXTRACT 0x20    // if this many bytes in a row is encountered, use RLE encoding.
+#define HEADERSIZE 0x10 		// size of an ines/nes2 header
 #define WORDMAX 128				// used with getword()
 #define LINEMAX 2048			// plenty of room for nested equates
 #define MAXPASSES 7				// # of tries before giving up
@@ -72,7 +82,9 @@ typedef struct {
 	ptrdiff_t value;		//PC (label), value (equate), param count (macro), funcptr (reserved)
 
 	// [freem addition (from asm6_sonder.c)]
-	int pos;				// location in file; used to determine bank when exporting labels
+	// location in output file; used to determine bank when exporting labels
+	// (only meaningful for labels corresponding to an address.)
+	int pos;				
 
 	char *line;			//for macro or equate, also used to mark unknown label
 							//*next:text->*next:text->..
@@ -86,6 +98,9 @@ typedef struct {
 	void *link;			//labels that share the same name (local labels) are chained together
 } label;
 
+// this is the current program address (in memory). 
+// it is incremented every time a byte is output.
+// accessed in this file via the macro `addr`.
 label firstlabel={		  //'$' label
 	"$",//*name
 	0,//value
@@ -128,10 +143,14 @@ int nes2wram_num = 0;
 int nes2bram_num = 0;
 int nes2chrbram_num = 0;
 
+// icfn definitions -- these all use the same signature, though
+// not all of these functions make use of the label* argument.
+
 void inesprg(label*, char**);
 void ineschr(label*, char**);
 void inesmir(label*, char**);
 void inesmap(label*, char**);
+void incines(label*,char**);
 
 void nes2chrram(label*, char**);
 void nes2prgram(label*, char**);
@@ -141,27 +160,20 @@ void nes2vs(label*, char**);
 void nes2bram(label*, char**);
 void nes2chrbram(label*, char**);
 
-label *findlabel(char*);
-void initlabels();
-label *newlabel();
-void getword(char*,char**,int);
-int getvalue(char**);
-int getoperator(char**);
-int eval(char**,int);
-label *getreserved(char**);
-int getlabel(char*,char**);
-void processline(char*,char*,int);
-void listline(char*,char*);
-void endlist();
 void opcode(label*,char**);
 void org(label*,char**);
 void base(label*,char**);
 void pad(label*,char**);
+void seekabs(label*, char**);
+void seekrel(label*, char**);
+void skiprel(label*, char**);
 void equ(label*,char**);
 void equal(label*,char**);
 void nothing(label*,char**);
 void include(label*,char**);
 void incbin(label*,char**);
+void incnes(label*,char**);
+void clearpatch(label*,char**);
 void dw(label*,char**);
 void db(label*,char**);
 void dl(label*,char**);
@@ -185,14 +197,57 @@ void ende(label*,char**);
 void ignorenl(label*,char**);		// [freem addition] "ignorenl"
 void endinl(label*,char**);		// [freem addition] "endinl"
 void fillval(label*,char**);
+void compfill(label*,char**);   // [NaOH addition]
+void endcompfill(label*,char**);   // [NaOH addition]
 void expandmacro(label*,char**,int,char*);
 void expandrept(int,char*);
 void make_error(label*,char**);
 void unstable(label*,char**);
 void hunstable(label*,char**);
 
+// forward declarations
+label *findlabel(char*);
+void initlabels();
+label *newlabel();
+void getword(char*,char**,int);
+int getvalue(char**);
+int getoperator(char**);
+int eval(char**,int);
+label *getreserved(char**);
+int getlabel(char*,char**);
+void processline(char*,char*,int);
+void listline(char*,char*);
+void endlist();
+void flush_output(int);
+char* find_ext(char*);
+char* replace_ext(char*, char*);
+
 // [freem addition (from asm6_sonder.c)]
 int filepos=0;
+
+// [NaOH] keeps track of last byte edited in file.
+int filesize=0;
+
+// ips offset for the start of the output buffer.
+// if output buffer is empty, this should agree with filepos.
+int ips_outpos=0;
+
+typedef struct ips_hunk_t {
+	int offset;
+	int length;
+	byte* contents; // if nullptr, rle.
+	byte rle_content;
+	int suppress; // if true, don't write to ips output.
+	struct ips_hunk_t* next;
+} ips_hunk;
+
+// linked list of IPS hunks
+ips_hunk* ips_hunk_head = 0;
+ips_hunk* ips_hunk_tail = 0;
+
+void ips_append_hunk();
+// writes patch to output file
+void ips_write(FILE* file);
 
 enum optypes {ACC,IMM,IND,INDX,INDY,ZPX,ZPY,ABSX,ABSY,ZP,ABS,REL,IMP};
 int opsize[]={0,1,2,1,1,1,1,2,2,1,2,1,0};
@@ -391,8 +446,13 @@ struct {
 		{"ORG",org},
 		{"BASE",base},
 		{"PAD",pad},
+		{"SEEKABS",seekabs},
+		{"SEEKREL",seekrel},
+		{"SKIPREL",skiprel},
 		{"INCLUDE",include},{"INCSRC",include},
 		{"INCBIN",incbin},{"BIN",incbin},
+		{"INCNES",incnes},
+		{"CLEARPATCH",clearpatch},
 		{"HEX",hex},
 		{"WORD",dw},{"DW",dw},{"DCW",dw},{"DC.W",dw},
 		{"BYTE",db},{"DB",db},{"DCB",db},{"DC.B",db},
@@ -408,6 +468,8 @@ struct {
 		{"IGNORENL",ignorenl},
 		{"ENDINL",endinl},
 		{"FILLVALUE",fillval},
+		{"COMPARE", compfill},
+		{"ENDCOMPARE", endcompfill},
 		{"DL",dl},
 		{"DH",dh},
 		{"ERROR",make_error},
@@ -415,6 +477,7 @@ struct {
 		{"INESCHR",ineschr},
 		{"INESMIR",inesmir},
 		{"INESMAP",inesmap},
+		{"INCINES",incines},
 		{"NES2CHRRAM",nes2chrram},
 		{"NES2PRGRAM",nes2prgram},
 		{"NES2SUB",nes2sub},
@@ -439,7 +502,13 @@ char MissingOperand[]="Missing operand.";
 char DivZero[]="Divide by zero.";
 char BadAddr[]="Can't determine address.";
 char NeedName[]="Need a name.";
+char CantCreateFile[]="Can't create output file.";
 char CantOpen[]="Can't open file.";
+char CantWrite[]="Write error.";
+char CompFailed[]="Compare failed. Byte at 0x________ was 0x++.";
+char CantSeek[]="Can't seek in file.";
+char CantSeekEnum[]="Can't seek in enum mode.";
+char InvalidHeader[]="iNES header invalid.";
 char ExtraENDM[]="ENDM without MACRO.";
 char ExtraENDR[]="ENDR without REPT.";
 char ExtraENDE[]="ENDE without ENUM.";
@@ -473,6 +542,7 @@ int skipline[IFNESTS];//1 on an IF statement that is false
 const char *errmsg;
 char *inputfilename=0;
 char *outputfilename=0;
+char *ipsfilename=0;
 char *listfilename=0;
 char *cdlfilename=0;
 int verboselisting=0;//expand REPT loops in listing
@@ -480,6 +550,7 @@ int genfceuxnl=0;//[freem addition] generate FCEUX .nl files for symbolic debugg
 int genmesenlabels=0; //generate label files for use with Mesen
 int gencdl=0; //generate CDL file
 int genlua=0;//generate lua symbol file
+int genips=0; //[NaOH] generate .ips patch.
 const char *listerr=0;//error message for list file
 label *labelhere;//points to the label being defined on the current line (for EQU, =, etc)
 FILE *listfile=0;
@@ -487,6 +558,8 @@ FILE *outputfile=0;
 FILE *cdlfile=0;
 byte outputbuff[BUFFSIZE];
 byte inputbuff[BUFFSIZE];
+byte ines_extension[HEADERSIZE];
+byte ines_extension_mask[HEADERSIZE] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 int outcount;//bytes waiting in outputbuff
 label **labellist;  //array of label pointers (list starts from center and grows outward)
 int labels;//# of labels in labellist
@@ -501,6 +574,7 @@ int lastcommentpos = -1;
 int nooutput=0;//supress output (use with ENUM)
 int nonl=0;//[freem addition] supress output to .nl files
 int defaultfiller;//default fill value
+int comparefiller=0; // compare on write to defaultfiller
 int insidemacro=0;//macro/rept is being expanded
 int verbose=1;
 
@@ -585,6 +659,7 @@ char *my_strupr(char *string)
 	return string;
 }
 
+// takes a hex character ('0'-'F'), returns value.
 int hexify(int i) {
 	if(i>='0' && i<='9') {
 		return i-'0';
@@ -1024,6 +1099,7 @@ char *expandline(char *dst,char *src) {
 				src++;
 				dst++;
 				c=*src;
+			// note that we skip numbers of form '0x...' and '32H' etc. (see getvalue())
 			} while((c>='0' && c<='9') || (c>='A' && c<='H') || (c>='a' && c<='h'));
 			c=1;//don't terminate yet
 		} else if(c=='"' || c=='\'') {//read past quotes
@@ -1136,9 +1212,9 @@ void export_labelfiles() {
 	label *l;
 	char str[512];
 	char filename[512];
+	char* strptr;
 	FILE* bankfiles[64];
 	FILE* ramfile;
-	char *strptr;
 
 	for(i=0;i<64;i++){ bankfiles[i]=0; }
 
@@ -1146,13 +1222,9 @@ void export_labelfiles() {
 	// bank files: <output>.bank#hex.nl
 
 	strcpy(filename, outputfilename);
-
-	strptr=strrchr(filename,'.'); // strptr ='.'ptr
-	if(strptr) if(strchr( strptr,'\\' )) strptr = 0; // watch out for "dirname.ext\listfile"
-	if(!strptr) strptr = filename + strlen(str); // strptr -> inputfile extension
-	strcpy(strptr, ".nes.ram.nl");
-
-	ramfile=fopen(filename, "w");
+	strptr = find_ext(filename);
+	sprintf(strptr, ".nes.ram.nl");
+	ramfile= fopen(filename, "w");
 
 	// the bank files are created ad-hoc before being written to.
 
@@ -1175,7 +1247,8 @@ void export_labelfiles() {
 				(*l).type==LABEL ||
 				(((*l).type==EQUATE || (*l).type==VALUE) && strlen((*l).name) > 1)
 			)
-				&& (*l).value < 0x10000
+				// only positive values at most 0xffff can be addresses
+				&& (*l).value < 0x10000 && (*l).value >= 0
 		){
 			sprintf(str,"$%04X#%s#\n",(unsigned int)(*l).value,(*l).name);
 			// puts(str);
@@ -1186,7 +1259,7 @@ void export_labelfiles() {
 			}
 			else{
 				// ROM
-				bank=(((*l).pos - 16)/16384);
+				bank=(((*l).pos - HEADERSIZE)/16384);
 				if (!bankfiles[bank]){
 					sprintf(strptr,".nes.%X.nl",bank);
 					bankfiles[bank]=fopen(filename,"w");
@@ -1210,17 +1283,12 @@ void export_lua() {
 	int i;
 	label *l;
 	char str[512];
-	char filename[512];
+	char* filename;
 	FILE* mainfile;
-	char *strptr;
-	strcpy(filename, outputfilename);
-
-	strptr=strrchr(filename,'.'); // strptr ='.'ptr
-	if(strptr) if(strchr( strptr,'\\' )) strptr = 0; // watch out for "dirname.ext\listfile"
-	if(!strptr) strptr = filename + strlen(str); // strptr -> inputfile extension
-	strcpy(strptr, ".lua");
-
+	
+	filename = replace_ext(outputfilename, ".lua");
 	mainfile=fopen(filename, "w");
+	free(filename);
 
 	for(i=labelstart;i<=labelend;i++){
 		l=labellist[i];
@@ -1271,18 +1339,12 @@ void export_mesenlabels() {
 	char* commenttext;
 	label *l;
 	char str[512];
-	char filename[512];
-	char *strptr;
+	char* filename;
 	FILE* outfile;
 
-	strcpy(filename, outputfilename);
-
-	strptr = strrchr(filename, '.'); // strptr ='.'ptr
-	if(strptr) if(strchr(strptr, '\\')) strptr = 0; // watch out for "dirname.ext\listfile"
-	if(!strptr) strptr = filename + strlen(filename); // strptr -> inputfile extension
-	strcpy(strptr, ".mlb");
-
+	filename = replace_ext(outputfilename, ".mlb");
 	outfile = fopen(filename, "w");
+	free(filename);
 
 	int currentcomment = 0;
 
@@ -1299,7 +1361,7 @@ void export_mesenlabels() {
 
 		if(l->type == LABEL) {
 			//Labels in the actual code
-			if(l->pos < 16) {
+			if(l->pos < HEADERSIZE) {
 				//Ignore file header
 				continue;
 			}
@@ -1311,8 +1373,8 @@ void export_mesenlabels() {
 
 				if(c->pos < l->pos) {
 					//This comment is for a line before the current code label, write it to the file right away
-					if(c->pos >= 16) {
-						sprintf(str, "P:%04X::", (unsigned int)c->pos - 16);
+					if(c->pos >= HEADERSIZE) {
+						sprintf(str, "P:%04X::", (unsigned int)c->pos - HEADERSIZE);
 						fwrite((const void *)str, 1, strlen(str), outfile);
 						fwrite((const void *)c->text, 1, strlen(c->text), outfile);
 						fwrite("\n", 1, 1, outfile);
@@ -1329,7 +1391,7 @@ void export_mesenlabels() {
 			}
 
 			//Dump the label
-			sprintf(str, "P:%04X:%s", (unsigned int)(l->pos - 16), l->name);
+			sprintf(str, "P:%04X:%s", (unsigned int)(l->pos - HEADERSIZE), l->name);
 			fwrite((const void *)str, 1, strlen(str), outfile);
 
 			if(commenttext) {
@@ -1767,6 +1829,7 @@ void processline(char *src,char *errsrc,int errline) {
 			if((*p).type==MACRO)
 				expandmacro(p,&s,errline,errsrc);
 			else
+				// call assembler function for the given directive.
 				((icfn)(*p).value)(p,&s);
 		}
 		if(!errmsg) {//check extra garbage
@@ -1795,15 +1858,15 @@ void showhelp(void) {
 	puts("\t-f\t\texport Lua symbol file");
 	puts("\t-c\t\texport .cdl for use with FCEUX/Mesen");
 	puts("\t-m\t\texport Mesen-compatible label file (.mlb)\n");
+	puts("\t-i\t\tbuild .ips format patch file instead of binary.");
 	puts("See README.TXT for more info.\n");
 }
 
 //--------------------------------------------------------------------------------------------
 
 int main(int argc,char **argv) {
-	char str[512];
 	int i,notoption;
-	char *nameptr;
+	char* tryname;
 	label *p;
 	FILE *f;
 
@@ -1872,6 +1935,9 @@ int main(int argc,char **argv) {
 				case 'f':
 					genlua=1;
 					break;
+				case 'i':
+					genips=1;
+					break;
 				default:
 					fatal_error("unknown option: %s",argv[i]);
 			}
@@ -1890,42 +1956,40 @@ int main(int argc,char **argv) {
 	if(!inputfilename) 
 		fatal_error("No source file specified.");
 	
-	strcpy(str,inputfilename);
-	nameptr=strrchr(str,'.');//nameptr='.' ptr
-	if(nameptr) if(strchr(nameptr,'\\')) nameptr=0;//watch out for "dirname.ext\listfile"
-	if(!nameptr) nameptr=str+strlen(str);//nameptr=inputfile extension
 	if(!outputfilename) {
-		strcpy(nameptr,".bin");
-		outputfilename=my_strdup(str);
+		outputfilename = replace_ext(inputfilename, ".bin");
+	}
+	
+	if(genips) {
+		ipsfilename = replace_ext(outputfilename, ".ips");
 	}
 
 	if(listfilename==true_ptr) {	//if listfile was wanted but no name was specified, use srcfile.LST
-		strcpy(nameptr,".lst");
-		listfilename=my_strdup(str);
+		listfilename = replace_ext(inputfilename, ".lst");
 	}
 
 	f=fopen(inputfilename,"rb");	//if srcfile won't open, try some default extensions
 	if(!f) {
-		strcpy(nameptr,".asm");
-		f=fopen(str,"rb");
+		tryname = replace_ext(inputfilename, ".asm");
+		f=fopen(tryname,"rb");
 		if(!f) {
-			strcpy(nameptr,".s");
-			f=fopen(str,"rb");
+			free(tryname);
+			tryname = replace_ext(inputfilename, ".s");
+			f=fopen(tryname,"rb");
 		}
-		if(f) inputfilename=my_strdup(str);
+		if(f) inputfilename=tryname;
 	}
 	if(f) fclose(f);
 
 	if(gencdl) {
-		strcpy(nameptr, ".cdl");
-		cdlfilename = my_malloc(strlen(nameptr) + 1);
-		strcpy(cdlfilename, str);
+		cdlfilename = replace_ext(inputfilename, ".cdl");
 	}
 
 	//main assembly loop:
 	p=0;
 	do {
 		filepos=0;
+		filesize=0;
 		pass++;
 		if(pass==MAXPASSES || (p==lastlabel))
 			lastchance=1;//give up on too many tries or no progress made
@@ -1940,8 +2004,8 @@ int main(int argc,char **argv) {
 		defaultfiller=DEFAULTFILLER;	//reset filler value
 		addr=NOORIGIN;//undefine origin
 		p=lastlabel;
-		nameptr=inputfilename;
-		include(0,&nameptr);		//start assembling srcfile
+		tryname=inputfilename;
+		include(0,&tryname);		//start assembling srcfile
 		if(errmsg)
 		{
 			//todo - shouldn't this set error?
@@ -1952,25 +2016,38 @@ int main(int argc,char **argv) {
 	if(outputfile) {
 		// Be sure last of output file is written properly
 		int result;
-		if ( fwrite(outputbuff,1,outcount,outputfile) < (size_t)outcount || fflush( outputfile ) )
-			fatal_error( "Write error." );
-		
-		i=ftell(outputfile);
+		flush_output(1);
 		
 		result = fclose(outputfile);
 		outputfile = NULL; // prevent fatal_error() from trying to close file again
 		if ( result )
-			fatal_error( "Write error." );
+			fatal_error( CantWrite);
 		
 		if(!error) {
-			message("%s written (%i bytes).\n",outputfilename,i);
+			message("%s written (%i bytes).\n",outputfilename,filesize);
 		} else
 			remove(outputfilename);
-	} else {
+	} else if (!genips) {
 		if(!error)
 			fputs("nothing to do!", stderr);
 		error = 1;
 	}
+	
+	if (genips)
+	{
+		puts(ipsfilename);
+		FILE* ipsfile = fopen(ipsfilename, "wb");
+		if (!ipsfile)
+		{
+			errmsg = CantWrite;
+		}
+		else
+		{
+			ips_write(ipsfile);
+			fclose(ipsfile);
+		}
+	} 
+	
 	if(listfile)
 		listline(0,0);
 
@@ -1985,28 +2062,571 @@ int main(int argc,char **argv) {
 	return error ? EXIT_FAILURE : 0;
 }
 
+// returns position of extension in the path, or
+// end of string if no extension.
+char* find_ext(char* in)
+{
+	char* strptr = strrchr(in, '.');
+	
+	// watch out for "dirname.ext\listfile"
+	if (strptr) {
+		if (strchr( strptr,'\\' ) || strchr(strptr, '/')) {
+			strptr = 0;
+		}
+	}
+	
+	// no input extension; skip to end.
+	if (!strptr) strptr = in + strlen(in);
+	
+	return strptr;
+}
+
+// duplicates the given input filename,
+// replacing the extension with the provided ext.
+// ext need not start with a '.'
+char* replace_ext(char* in, char* ext)
+{
+	char* strptr;
+	char* out = my_malloc(strlen(in) + strlen(ext) + 1);
+	strcpy(out, in);
+	
+	// search for last '.'
+	strptr = find_ext(out);
+	
+	strcpy(strptr, ext);
+	
+	return out;
+}
+
 #define LISTMAX 8//number of output bytes to show in listing
 byte listbuff[LISTMAX];
 int listcount;
-void output(byte *p,int size, int cdlflag) {
-	static int oldpass=0;
-/*  static int noentry=0;
-	if(addr<0) {
-		if(!noentry) {//do this only once
-			noentry++;
-			if(lastchance) errmsg=NoOrigin;//"Origin undefined."
-		}
+
+ips_hunk* malloc_ips_hunk_regular(size_t offset, byte* p, size_t count)
+{
+	assert(count > 0);
+	
+	ips_hunk* hunk = (ips_hunk*)my_malloc(sizeof(ips_hunk));
+	hunk->offset = offset;
+	hunk->length = count;
+	hunk->contents = (byte*)my_malloc(count);
+	hunk->suppress = 0;
+	hunk->next = 0;
+	memcpy(hunk->contents, p, count);
+	return hunk;
+}
+
+ips_hunk* malloc_ips_hunk_rle(size_t offset, byte b, size_t count)
+{
+	assert(count > 0);
+	
+	ips_hunk* hunk = (ips_hunk*)my_malloc(sizeof(ips_hunk));
+	hunk->offset = offset;
+	hunk->length = count;
+	hunk->contents = 0;
+	hunk->rle_content = b;
+	hunk->suppress = 0;
+	hunk->next = 0;
+	return hunk;
+}
+
+void ips_append_hunk(ips_hunk* hunk)
+{
+	hunk->next = 0;
+	
+	if (ips_hunk_head == 0)
+	{
+		ips_hunk_head = hunk;
+	}
+	else
+	{
+		ips_hunk_tail->next = hunk;
+	}
+	
+	ips_hunk_tail = hunk;
+}
+
+void write_ips_hunk_regular(FILE* f, size_t offset, byte *p, size_t count)
+{
+	assert(count <= 0xffff);
+	byte header[5] = {
+		(offset & 0xff0000) >> 16,
+		(offset & 0xff00) >> 8,
+		(offset & 0xff),
+		(count & 0xff00) >> 8,
+		count & 0xff
+	};
+	
+	// write header
+	if ( fwrite(header, 5, 1, f) < 1 )
+	{
+		errmsg=CantWrite;
 		return;
-	}*/
-	if(gencdl) {
+	}
+	
+	// write payload
+	if (fwrite(p,1,count,f) < count || fflush(f))
+	{
+		errmsg=CantWrite;
+	}
+}
+
+void write_ips_hunk_rle(FILE* f, size_t offset, byte b, size_t count)
+{
+	assert(count <= 0xffff);
+	byte header[8] = {
+		(offset & 0xff0000) >> 16,
+		(offset & 0xff00) >> 8,
+		(offset & 0xff),
+		0,
+		0,
+		(count & 0xff00) >> 8,
+		count & 0xff,
+		b
+	};
+	
+	if (
+		fwrite(header, 8, 1, f) < 1
+		|| fflush(f)
+	)
+	{
+		errmsg=CantWrite;
+	}
+}
+
+void ips_free_hunk(ips_hunk* hunk)
+{
+	if (hunk->contents)
+	{
+		free(hunk->contents);
+	}
+	free(hunk);
+}
+
+int ips_changed = 0;
+
+// combines/swaps adjacent/overlapping hunks.
+// bubble sort ips entries.
+// returns true if a change was made.
+void ips_simplify_hunk(ips_hunk** hunk_ptr)
+{
+	ips_hunk* hunk;
+	ips_hunk* next;
+	
+tail_recurse:
+	hunk = *hunk_ptr;
+	if (hunk == 0) return;
+	next = hunk->next;
+	
+	// this node is not used.
+	if (hunk->suppress || hunk->length == 0) goto remove_node;
+	
+	// update tail
+	ips_hunk_tail = hunk;
+	
+	// reached end.
+	if (next == 0) return;
+	
+	// don't merge with suppressed chunk
+	if (next->suppress)
+	{
+		// continue
+		hunk_ptr = &hunk->next;
+		goto tail_recurse;
+	};
+	
+	// totally contained in the next one?
+	if (hunk->offset >= next->offset
+		&& hunk->offset + hunk->length <= next->offset + next->length)
+	{
+		goto remove_node;
+	}
+	
+	// the next one starts after this one
+	if (next->offset > hunk->offset)
+	{
+		// but they overlap
+		if (hunk->offset + hunk->length > next->offset)
+		{
+			// truncate this one
+			ips_changed = 1;
+			hunk->length = next->offset - hunk->offset;
+		}
+		else
+		{
+			// no change; proceed to the next one.
+			hunk_ptr = &hunk->next;
+			goto tail_recurse;
+		}
+	}
+	// the next one is totally contained in this one?
+	else if (next->offset >= hunk->offset
+		&& next->offset + next->length <= hunk->offset + hunk->length)
+	{
+		ips_changed = 1;
+		
+		// duplicate us to appear after theirs
+		if (next->offset + next->length < hunk->offset + hunk->length)
+		{
+			ips_hunk* newhunk = (ips_hunk*)my_malloc(sizeof(ips_hunk));
+			newhunk->offset = next->offset + next->length;
+			newhunk->length = hunk->offset + hunk->length - newhunk->offset;
+			if (hunk->contents)
+			{
+				hunk->contents = (byte*)my_malloc(newhunk->length);
+				memcpy(
+					hunk->contents,
+					hunk->contents + newhunk->offset - hunk->offset,
+					newhunk->length
+				);
+			}
+			else
+			{
+				newhunk->contents = 0;
+				newhunk->rle_content = hunk->rle_content;
+			}
+			newhunk->next = next->next;
+		}
+		
+		// truncate our length
+		hunk->length = next->offset - hunk->offset;
+	}
+	// the next one starts before this one
+	else if (next->offset < hunk->offset)
+	{
+		ips_changed = 1;
+		
+		if (next->offset + next->length > hunk->offset)
+		{
+			// not disjoint.
+			// truncate ours from the left.
+			
+			int removed = next->offset + next->length - hunk->offset;
+			
+			hunk->length -= removed;
+			if (hunk->contents)
+			{
+				memmove(hunk->contents, hunk->contents + removed, hunk->length);
+			}
+		}
+		
+		// swap
+		*hunk_ptr = next;
+		hunk->next = next->next;
+		next->next = hunk;
+		
+		// proceed from the new location of this hunk.
+		hunk_ptr = &next->next;
+		goto tail_recurse;
+	}
+	
+	if (0)
+	{
+	remove_node:
+		ips_changed = 1;
+		*hunk_ptr = next;
+		ips_free_hunk(hunk);
+	}
+	
+	// retry this node
+	goto tail_recurse;
+}
+
+// writes all hunks to the output file.
+void ips_write(FILE* output)
+{
+	assert(genips);
+	
+	// write IPS header.
+	if ( fwrite("PATCH", 5, 1, output) < 1 )
+	{
+		errmsg=CantWrite;
+		return;
+	}
+	
+	// O(n^2)
+	while (1) {
+		ips_simplify_hunk(&ips_hunk_head);
+		if (!ips_changed) break;
+		ips_changed = 0;
+	};
+	
+	// write hunks
+	for (ips_hunk* hunk = ips_hunk_head; hunk != 0; hunk = hunk->next)
+	{
+		if (hunk->suppress) continue;
+		if (hunk->contents)
+		{
+			write_ips_hunk_regular(output, hunk->offset, hunk->contents, hunk->length);
+		}
+		else
+		{
+			write_ips_hunk_rle(output, hunk->offset, hunk->rle_content, hunk->length);
+		}
+	}
+	
+	if ( fwrite("EOF", 3, 1, output) < 1 )
+	{
+		errmsg=CantWrite;
+		return;
+	}
+}
+
+void flush_output_ips()
+{	
+	// write IPS hunks.
+	if (outcount == 0)
+	{
+		// do nothing.
+	}
+	else if (outcount <= 3)
+	{
+		// RLE is never a good choice for hunks this small.
+		ips_append_hunk(malloc_ips_hunk_regular(ips_outpos, outputbuff, outcount));
+	}
+	else
+	{
+		// split into RLE and non-RLE hunks
+		size_t hunk_start = 0;
+		size_t rle_start = 0;
+		byte rle_cmp = outputbuff[0];
+		for (size_t i = 0; i <= outcount; ++i)
+		{
+			int b = (i == outcount)
+				? -1
+				: outputbuff[i];
+			if (b != (int) rle_cmp)
+			{
+				if (i - rle_start >= IPS_RLE_EXTRACT)
+				{
+					if (rle_start > hunk_start)
+					{
+						ips_append_hunk(malloc_ips_hunk_regular(
+							ips_outpos + hunk_start, outputbuff + hunk_start, rle_start - hunk_start
+						));
+					}
+					ips_append_hunk(malloc_ips_hunk_rle(
+						ips_outpos + rle_start, rle_cmp, i - rle_start
+					));
+					hunk_start = i;
+				}
+				else if (b == -1)
+				{
+					ips_append_hunk(malloc_ips_hunk_regular(
+						ips_outpos + hunk_start, outputbuff + hunk_start, i - hunk_start
+					));
+					break;
+				}
+				
+				rle_start = i;
+				rle_cmp = b;
+			}
+		}
+	}
+	ips_outpos += outcount;
+}
+
+// removes all hunks from the list.
+void ips_clear()
+{
+	// force output flush because
+	// output buffer may be written to ips eventually.
+	flush_output(1);
+	
+	// clear list.
+	for (ips_hunk* hunk = ips_hunk_head; hunk != 0; )
+	{
+		if (hunk->contents)
+		{
+			free(hunk->contents);
+		}
+		ips_hunk* tmp = hunk;
+		hunk = hunk->next;
+		free(tmp);
+	}
+	
+	ips_hunk_head = 0;
+	ips_hunk_tail = 0;
+}
+
+// gets cmp value in ips file
+int ips_get_cmp_value(size_t location)
+{
+	assert(genips);
+	int value = -1;
+	for (ips_hunk* hunk = ips_hunk_head; hunk != 0; hunk = hunk->next)
+	{
+		if (hunk->offset <= location && location < hunk->offset + hunk->length)
+		{
+			if (hunk->contents)
+			{
+				value = hunk->contents[location - hunk->offset];
+			}
+			else
+			{
+				value = hunk->rle_content;
+			}
+		}
+	}
+	return value;
+}
+
+// gets output value at the given position
+// negative value if couldn't read it or not set
+int get_cmp_value(size_t location)
+{
+	if (genips)
+	{
+		return ips_get_cmp_value(location);
+	}
+	else
+	{
+		// TODO optimize
+		int b;
+		size_t prevseek = ftell(outputfile);
+		fseek(outputfile, location, SEEK_SET);
+		if (fread(&b,1,1,outputfile) < 1)
+		{
+			b = -1;
+		}
+		fseek(outputfile, prevseek, SEEK_SET);
+		return b;
+	}
+}
+
+// flushes output buffer
+void flush_output(int force)
+{
+	if(outcount>=BUFFSIZE || force || (genips && outcount >= 0xffff)) {
+		
+		// flush ips output
+		if (genips) {
+			flush_output_ips();
+		}
+		
+		// flush binary output
+		if (outputfile)
+		{
+			if(fwrite(outputbuff,1,outcount,outputfile)<outcount || fflush(outputfile))
+				errmsg=CantWrite;
+		}
+			
+		// clear buffer
+		outcount=0;
+	}
+}
+
+// directly adds bytes to output buffer.
+void output_buffer(byte* p, size_t count)
+{
+	for (size_t i = 0; i < count; ++i)
+	{
+		// compare
+		if (comparefiller)
+		{
+			int b = get_cmp_value(filepos + i);
+			if (b != defaultfiller && b >= 0)
+			{
+				errmsg = CompFailed;
+				int loc = filepos + outcount;
+				sprintf(CompFailed + 26, "%0*x was 0x%x.", 6, loc, b);
+				return;
+			}
+		}
+		
+		// write to outputbuffer
+		outputbuff[outcount++]=*p;
+		
+		p++;
+		
+		flush_output(0);
+		
+		if (errmsg)
+		{
+			return;
+		}
+	}
+}
+
+// checks if we need to start a new file for outputting to.
+void output_file()
+{
+	// pass number for previous pass.
+	// note that the first pass is pass=1.
+	static int oldpass=0;
+	
+	if (nooutput) return;
+	
+	// if we're generating a CDL file.
+	if (gencdl) {
 		if(oldpass != pass) {
 			if(cdlfile) {
 				fclose(cdlfile);
 			}
-			cdlfile = fopen(cdlfilename, "wb");
+			cdlfile = fopen(cdlfilename, "wb+");
+		}
+	}
+	
+	// when starting a new pass, reopen file and possibly insert iNES header.
+	if(oldpass!=pass) {
+		oldpass=pass;
+		
+		if (genips)
+		{
+			ips_clear();
+			ips_outpos = 0;
+		}
+		
+		// binary output.
+		if(outputfile) fclose(outputfile);
+		outputfile=fopen(outputfilename,"wb+");
+		assert(filepos == 0);
+		assert(filesize == 0);
+		outcount=0;
+		if(!outputfile) {
+			errmsg=CantCreateFile;
+			return;
 		}
 
-		if(cdlfile && filepos >= 16) {
+		// (insert iNES header if needed)
+		if (ines_include) {
+			byte ineshdr[HEADERSIZE] = {'N','E','S',0x1A,
+								(byte)inesprg_num,
+								(byte)ineschr_num,
+								(byte)(inesmap_num << 4) | inesmir_num,
+								(byte)(inesmap_num & 0xF0) | (use_nes2 << 3) | (nes2vs_num),
+								(byte)(inesmap_num >> 8) | (nes2sub_num << 4),
+								(byte)(inesprg_num >> 8) | ((ineschr_num >> 8) << 4),
+								(byte)(nes2bram_num << 4) | nes2prg_num,
+								(byte)(nes2chrbram_num << 4) | nes2chr_num,
+								(byte)nes2tv_num,
+								0,0,0};
+			// extensions
+			for (unsigned i = 0; i < HEADERSIZE; ++i)
+			{
+				ineshdr[i] &= ~ines_extension_mask[i];
+				ineshdr[i] |= ines_extension_mask[i] & ines_extension[i];
+			}
+			
+			// write header
+			output_buffer(ineshdr, HEADERSIZE);
+			filepos = sizeof(ineshdr);
+			filesize = sizeof(ineshdr);
+		}
+	}
+}
+
+// writes `size` bytes from `p` to output file.
+// cdlflag is used when generating cdlfiles.
+// It should be one of the cdl types (NONE, DATA, or CODE).
+void output(byte *p,int size, int cdlflag) {
+	
+	// ensure we have a file that we're outputting to.
+	output_file();
+	
+	// update cdl file
+	if(gencdl && !nooutput) {
+		if(cdlfile && (!ines_include || filepos >= HEADERSIZE)) {
 			int repeat = size;
 			while(repeat--) {
 				if(addr < 0x10000) {
@@ -2020,53 +2640,27 @@ void output(byte *p,int size, int cdlflag) {
 			}
 		}
 	}
-
+	
+	// advance the memory address.
 	addr+=size;
-
-	if(nooutput)
+	
+	if (nooutput)
 		return;
-	if(oldpass!=pass) {
-		oldpass=pass;
-		if(outputfile) fclose(outputfile);
-		outputfile=fopen(outputfilename,"wb");
-		filepos=0;
-		outcount=0;
-		if(!outputfile) {
-			errmsg="Can't create output file.";
-			return;
-		}
-
-		// (insert iNES if needed)
-		if (ines_include) {
-			byte ineshdr[16] = {'N','E','S',0x1A,
-								(byte)inesprg_num,
-								(byte)ineschr_num,
-								(byte)(inesmap_num << 4) | inesmir_num,
-								(byte)(inesmap_num & 0xF0) | (use_nes2 << 3) | (nes2tv_num << 7),
-								(byte)(inesmap_num >> 8) | (nes2sub_num << 4),
-								(byte)(inesprg_num >> 8) | ((ineschr_num >> 8) << 4),
-								(byte)(nes2bram_num << 4) | nes2prg_num,
-								(byte)(nes2chrbram_num << 4) | nes2chr_num,
-								(byte)nes2tv_num,
-								0,0,0};
-			if ( fwrite(ineshdr,1,16,outputfile) < (size_t)16 || fflush( outputfile ) )
-				errmsg="Write error.";
-			filepos += 16;
-		}
-	}
-	if(!outputfile) return;
+	
+	if(!outputfile && !genips) return;
+	
+	// write data.
+	output_buffer(p, size);
+	
 	while(size--) {
 		if(listfile && listcount<LISTMAX)
 			listbuff[listcount]=*p;
 		listcount++;
-		filepos++;
-		outputbuff[outcount++]=*p;
 		p++;
-		if(outcount>=BUFFSIZE) {
-			if(fwrite(outputbuff,1,BUFFSIZE,outputfile)<BUFFSIZE)
-				errmsg="Write error.";
-			outcount=0;
-		}
+		
+		// update filepos and filesize
+		filepos++;
+		if (filepos > filesize) filesize = filepos;
 	}
 }
 
@@ -2077,6 +2671,86 @@ static void output_le( int n, int size, int cdlflag )
 	b [0] = n;
 	b [1] = n >> 8;
 	output( b, size, cdlflag);
+}
+
+// seeks to the given location for outputting.
+void output_seek(int pos)
+{
+	byte padbyte = defaultfiller;
+	int prevaddr = addr;
+	
+	if (nooutput)
+	{
+		errmsg = CantSeekEnum;
+		return;
+	}
+		
+	// ensure output file exists.
+	output_file();
+	
+	flush_output(1);
+	
+	// seek in cdlfile.
+	if (gencdl)
+	{
+		if (cdlfile)
+		{
+			int cdlpos = (pos < filesize)
+				? pos
+				: filesize;
+			// cdl file is headerless
+			if (ines_include) cdlpos -= HEADERSIZE;
+			// clamp
+			if (cdlpos < 0) cdlpos = 0;
+			if (fflush(cdlfile))
+			{
+				errmsg = CantWrite;
+				return;
+			}
+			fseek(cdlfile, cdlpos, SEEK_SET);
+			if (ftell(cdlfile) != cdlpos)
+			{
+				errmsg = CantSeek;
+				return;
+			}
+		}
+	}
+	
+	// FIXME: we don't actually need a file in order to set the next output position.
+	// Additionally, there is no need to pad until a write actually occurs.
+	
+	if (outputfile)
+	{
+		// seek in outputfile.
+		if (pos > filesize)
+		{
+			// past end of file -- pad with zeros
+			filepos = filesize;
+			ips_outpos = filepos;
+			fseek(outputfile, filepos, SEEK_SET);
+			while (filepos < pos)
+			{
+				output(&padbyte, 1, NONE);
+			}
+		}
+		else if (pos < filesize)
+		{
+			// within file bounds -- seek there.
+			filepos = pos;
+			fseek(outputfile, filepos, SEEK_SET);
+		}
+	
+		if (filepos != ftell(outputfile))
+		{
+			errmsg = CantSeek;
+		}
+	} 
+	
+	filepos = pos;
+	ips_outpos = pos;
+	
+	// ensures the above calls to output (for padding) won't modify addr.
+	addr = prevaddr;
 }
 
 //end listing when src=0
@@ -2120,7 +2794,7 @@ void listline(char *src,char *comment) {
 		strcpy(srcbuff,src);//make a copy of the original source line
 		if(comment) {
 			strcat(srcbuff, comment);
-			if(genmesenlabels && filepos > 0 && addr < 0x10000) {
+			if(genmesenlabels && filepos > 0 && addr < 0x10000 && addr >= 0) {
 				//save this comment - needed for export
 				addcomment(comment);
 			}
@@ -2177,6 +2851,42 @@ void base(label *id, char **next) {
 		addr=val;
 	else
 		addr=NOORIGIN;//undefine origin
+}
+
+void seekabs(label *id, char **next) {	
+	int val;
+	dependant=0;
+	val=eval(next,WHOLEEXP);
+	if(!dependant && !errmsg)
+	{
+		output_seek(val);
+	}
+}
+
+void seekrel(label *id, char **next) {	
+	int val;
+	dependant=0;
+	val=eval(next,WHOLEEXP);
+	if(!dependant && !errmsg)
+	{
+		output_seek(filepos + val);
+	}
+}
+
+void skiprel(label *id, char **next) {	
+	int val;
+	dependant=0;
+	val=eval(next,WHOLEEXP);
+	if(!dependant && !errmsg)
+	{
+		output_seek(filepos + val);
+		addr += val;
+	}
+	else
+	{
+		// undefine origin -- we don't know where we are anymore.
+		addr=NOORIGIN;
+	}
 }
 
 //nothing to do (empty line)
@@ -2242,6 +2952,117 @@ void incbin(label *id,char **next) {
 		}
 	} while(0);
 	if(f) fclose(f);
+}
+
+void incnes(label *id, char **next) {
+	char filename[WORDMAX];
+	char buf[WORDMAX + 2];
+	int filesize, seekpos, bytesleft, i;
+	int cdlbytesleft, cdli, cdlstart, cdlflag;
+	char cdlbuf[STACKBUFFSIZE];
+	FILE *f=0;
+	FILE *cdl=0;
+	
+	// get string-wrapped filename.
+	buf[0] = '"';
+	getfilename(filename, next);
+	strcpy(buf + 1, filename);
+	strcpy(buf + strlen(buf), "\"");
+	
+	char* s = buf;
+	incines(id, &s);
+
+	// include binary
+	do {
+	//file open:
+		if(!(f=fopen(filename,"rb"))) {
+			errmsg=CantOpen;
+			break;
+		}
+		fseek(f,0,SEEK_END);
+		filesize=ftell(f);
+		if (filesize < HEADERSIZE)
+		{
+			errmsg = SeekOutOfRange;
+			break;
+		}
+	//check for .cdl file (optional)
+		if (gencdl)
+		{
+			s = replace_ext(filename, ".cdl");
+			if ((cdl = fopen(s, "rb")))
+			{
+				fseek(cdl, 0, SEEK_END);
+				cdlbytesleft = ftell(cdl);
+				fseek(cdl, 0, SEEK_SET);
+				if (cdlbytesleft == 0)
+				{
+					fclose(cdl);
+					cdl = 0;
+				}
+			}
+			free(s);
+		}
+		
+	//file seek:
+		seekpos=HEADERSIZE;
+		fseek(f,HEADERSIZE,SEEK_SET);
+	//get size:
+		bytesleft=filesize-seekpos;
+	//read file:
+		while(bytesleft) {
+			// clamp to buffer
+			i = bytesleft;
+			if (i>BUFFSIZE) i=BUFFSIZE;
+			if (cdl && i > cdlbytesleft) i = cdlbytesleft;
+			if (cdl && i > STACKBUFFSIZE) i = STACKBUFFSIZE;
+			fread(inputbuff,1,i,f);
+			if (cdl)
+			{
+				fread(cdlbuf, 1, i, cdl);
+				cdlbytesleft -= i;
+				if (!cdlbytesleft)
+				{
+					fclose(cdl);
+					cdl = 0;
+				}
+				
+				// output in sections of identical cdl.
+				
+				cdli = 0;
+				while(cdli < i)
+				{
+					cdlstart = cdli;
+					cdlflag = cdlbuf[cdli++];
+					for (; cdli < i && cdlbuf[cdli] == cdlflag; ++cdli);
+					output(inputbuff + cdlstart, cdli - cdlstart, cdlflag);
+				}
+			}
+			else
+			{
+				output(inputbuff,i,NONE);
+			}
+			bytesleft-=i;
+		}
+	} while(0);
+	if(f) fclose(f);
+	if (cdl) fclose(cdl);
+}
+
+void clearpatch(label *id, char **next)
+{	
+	if (genips)
+	{
+		flush_output(1);
+		
+		// mark sections as non-output.
+		// we don't remove them because we may wish to
+		// read from them (e.g. compare)
+		for (ips_hunk* hunk = ips_hunk_head; hunk != 0; hunk = hunk->next)
+		{
+			hunk->suppress = 1;
+		}
+	}
 }
 
 void hex(label *id,char **next) {
@@ -2765,6 +3586,14 @@ void fillval(label *id,char **next) {
 	defaultfiller=eval(next,WHOLEEXP);
 }
 
+void compfill(label *id,char **next) {
+	comparefiller=1;
+}
+
+void endcompfill(label *id,char **next) {
+	comparefiller=0;
+}
+
 void make_error(label *id,char **next) {
 	char *s=*next;
 	reverse(tmpstr,s+strspn(s,whitesp2));	   //eat whitesp, quotes off both ends
@@ -2791,7 +3620,7 @@ void inesprg(label *id, char **next) {
 	if(inesprg_num < 0 || inesprg_num > 0xFF)
 		errmsg=OutOfRange;
 	
-	ines_include++;
+	ines_include = 1;
 }
 
 void ineschr(label *id, char **next) {
@@ -2800,7 +3629,7 @@ void ineschr(label *id, char **next) {
 	if(ineschr_num < 0 || ineschr_num > 0xFF)
 		errmsg=OutOfRange;
 	
-	ines_include++;
+	ines_include = 1;
 }
 
 void inesmir(label *id, char **next) {
@@ -2810,17 +3639,105 @@ void inesmir(label *id, char **next) {
 	if(inesmir_num > 16 || inesmir_num < 0)
 		errmsg=OutOfRange;
 	
-	ines_include++;
+	ines_include = 1;
 }
 
 void inesmap(label *id, char **next) {
 	inesmap_num=eval(next, WHOLEEXP);
 
 	//ines 2.0 allows for some big numbers...
-	if(inesmap_num > 4095 || inesmap_num < 0)
+	if(inesmap_num > 0xfff || inesmap_num < 0)
 		errmsg=OutOfRange;
 	
-	ines_include++;
+	ines_include = 1;
+	if (inesmap_num > 0xff)
+	{
+		ines_extension_mask[8] &= ~0x0f;
+	}
+}
+
+void incines(label *id,char **next) {
+	int filesize;
+	FILE *f=0;
+	
+	char header[ HEADERSIZE ];
+	int parse = 0;
+
+	do {
+	//file open:
+		getfilename(tmpstr,next);
+		if(!(f=fopen(tmpstr,"rb"))) {
+			errmsg=CantOpen;
+			break;
+		}
+		fseek(f,0,SEEK_END);
+		filesize=ftell(f);
+		if (filesize < sizeof(header)) {
+			errmsg = InvalidHeader;
+			break;
+		}
+	//file seek:
+		fseek(f, 0,SEEK_SET);
+	// file read:
+		fread(header, sizeof(header), 1, f);
+		parse = 1;
+	} while(0);
+	if (f) fclose(f);
+	
+	// parse the header that was just read.
+	if (parse) {
+		ines_include = 1;
+		
+		// validate header
+		if (header[0] != 'N' || header[1] != 'E' || header[2] != 'S' || header[3] != 0x1A) {
+			errmsg = InvalidHeader;
+			return;
+		}
+		
+		// ines data
+		inesprg_num = header[4];
+		inesprg_num |= (header[9] & 0x0f) << 8;
+		
+		ineschr_num = header[5];
+		ineschr_num |= (header[9] & 0xf0) << 4;
+		
+		inesmir_num = (header[6] & 0x0f);
+		
+		inesmap_num = 0;
+		inesmap_num |= (header[6] & 0xf0) >> 4;
+		inesmap_num |= (header[7] & 0xf0);
+		inesmap_num |= (header[8] & 0x0f) << 4;		
+		
+		// nes2
+		use_nes2 = (header[7] & 0x0c) == 0x08;
+		if (use_nes2)
+		{
+			nes2vs_num = header[7] & 0x01;
+			nes2sub_num = (header[8] & 0xf0) >> 4;
+			nes2bram_num = (header[10] & 0xf0) >> 4;
+			nes2prg_num = (header[10] & 0x0f);
+			nes2chrbram_num = (header[11] & 0xf0) >> 4;
+			nes2chr_num = (header[11] & 0x0f);
+			nes2tv_num = header[12] & 0x03;
+		}
+		
+		// there are some bits in the header that we don't
+		// understand, so to ensure these parts of the header are preserved,
+		// we store them as unrecognized extension data.
+		byte mask[] = {
+			0   , 0   , 0   , 0   ,
+			0   , 0   , 0   , 0x06,
+			0   , 0   , 0   , 0   ,
+			0xff, 0xff, 0xff, 0xff   
+		};
+		if (!use_nes2)
+		{
+			// iNES format only strictly defines up to byte 7.
+			memset(mask + 0x8, 0xff, HEADERSIZE - 0x8);
+		}
+		memcpy(ines_extension, header, HEADERSIZE);
+		memcpy(ines_extension_mask, mask, HEADERSIZE);
+	}
 }
 
 void nes2chrram(label *id, char **next) {
@@ -2829,7 +3746,9 @@ void nes2chrram(label *id, char **next) {
 	if (nes2chr_num < 0 || nes2chr_num > 16)
 		errmsg=OutOfRange;
 	
-	ines_include++; use_nes2 = 1;
+	ines_include = 1; use_nes2 = 1;
+	ines_extension_mask[7] &= ~0x0c;
+	ines_extension_mask[11] &= ~0x0f;
 }
 
 void nes2prgram(label *id, char **next) {
@@ -2838,7 +3757,9 @@ void nes2prgram(label *id, char **next) {
 	if (nes2prg_num < 0 || nes2prg_num > 16)
 		errmsg=OutOfRange;
 	
-	ines_include++; use_nes2 = 1;
+	ines_include = 1; use_nes2 = 1;
+	ines_extension_mask[7] &= ~0x0c;
+	ines_extension_mask[10] &= ~0x0f;
 }
 
 void nes2sub(label *id, char **next) {
@@ -2847,7 +3768,9 @@ void nes2sub(label *id, char **next) {
 	if (nes2sub_num < 0 || nes2sub_num > 16)
 		errmsg=OutOfRange;
 	
-	ines_include++; use_nes2 = 1;
+	ines_include = 1; use_nes2 = 1;
+	ines_extension_mask[7] &= ~0x0c;
+	ines_extension_mask[8] &= ~0xf0;
 }
 
 void nes2tv(label *id, char **next) {
@@ -2863,12 +3786,15 @@ void nes2tv(label *id, char **next) {
 	if(nes2tv_num > 2 || nes2tv_num < 0)
 		errmsg=OutOfRange;
 	
-	ines_include++; use_nes2 = 1;
+	ines_include = 1; use_nes2 = 1;
+	ines_extension_mask[7] &= ~0x0c;
+	ines_extension_mask[12] &= ~0x03;
 }
 
 void nes2vs(label *id, char **next) {
 	nes2vs_num = 1;
-	ines_include++; use_nes2 = 1;
+	ines_include = 1; use_nes2 = 1;
+	ines_extension_mask[7] &= ~0x0d;
 }
 
 void nes2bram(label *id, char **next) { 
@@ -2877,7 +3803,9 @@ void nes2bram(label *id, char **next) {
 	if (nes2bram_num < 0 || nes2bram_num > 16)
 		errmsg=OutOfRange;
 	
-	ines_include++; use_nes2 = 1;
+	ines_include = 1; use_nes2 = 1;
+	ines_extension_mask[7] &= ~0x0c;
+	ines_extension_mask[10] &= ~0xf0;
 }
 
 void nes2chrbram(label *id, char **next) {
@@ -2886,5 +3814,7 @@ void nes2chrbram(label *id, char **next) {
 	if (nes2chrbram_num < 0 || nes2chrbram_num > 16)
 		errmsg=OutOfRange;
 	
-	ines_include++; use_nes2 = 1;
+	ines_include = 1; use_nes2 = 1;
+	ines_extension_mask[7] &= ~0x0c;
+	ines_extension_mask[11] &= ~0xf0;
 }
