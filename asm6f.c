@@ -41,7 +41,6 @@
 #include <stdlib.h>
 #include <stddef.h>
 #include <ctype.h>
-#include <stdarg.h>
 
 #define VERSION "1.6"
 
@@ -128,6 +127,9 @@ int nes2wram_num = 0;
 int nes2bram_num = 0;
 int nes2chrbram_num = 0;
 
+#define fatal_error(fmt, args...) { fprintf(stderr, "\nError: " fmt "\n\n", ## args); DIE(); }
+#define message(fmt, args...) if (verbose) { printf(fmt, ## args); }
+
 void inesprg(label*, char**);
 void ineschr(label*, char**);
 void inesmir(label*, char**);
@@ -141,6 +143,7 @@ void nes2vs(label*, char**);
 void nes2bram(label*, char**);
 void nes2chrbram(label*, char**);
 
+void DIE(void);
 label *findlabel(char*);
 void initlabels();
 label *newlabel();
@@ -512,35 +515,15 @@ static void* ptr_from_bool( int b )
 	return NULL;
 }
 
-// Prints printf-style message to stderr, then exits.
 // Closes and deletes output file.
-static void fatal_error( const char fmt [], ... )
-{
-	va_list args;
-	
+// Commonly used alongside fatal_error() macro.
+void DIE(void) {
 	if ( outputfile != NULL ) {
 		fclose( outputfile );
 		remove( outputfilename );
 	}
-	
-	va_start( args, fmt );
-	fprintf( stderr, "\nError: " );
-	vfprintf( stderr, fmt, args );
-	fprintf( stderr, "\n\n" );
-	va_end( args );
-	
-	exit( EXIT_FAILURE );
-}
 
-// Prints printf-style message if verbose mode is enabled.
-static void message( const char fmt [], ... )
-{
-	if ( verbose ) {
-		va_list args;
-		va_start( args, fmt );
-		vprintf( fmt, args );
-		va_end( args );
-	}
+	exit( EXIT_FAILURE );
 }
 
 // Same as malloc(), but prints error and exits if allocation fails
@@ -1929,10 +1912,11 @@ int main(int argc,char **argv) {
 		pass++;
 		if(pass==MAXPASSES || (p==lastlabel))
 			lastchance=1;//give up on too many tries or no progress made
-		if(lastchance)
+		if(lastchance) {
 			message("last try..\n");
-		else
+		} else {
 			message("pass %i..\n",pass);
+		}
 		needanotherpass=0;
 		skipline[0]=0;
 		scope=1;		
