@@ -2,3 +2,4 @@
 *.o
 *.obj
 asm6f
+test_cases/incbin/incbin.bin
