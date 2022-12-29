@@ -913,13 +913,16 @@ int eval(char **str,int precedence) {
 }
 
 //copy next word from src into dst and advance src
-//mcheck=1 to crop mathy stuff (0 for filenames,etc)
+//mcheck=0 to crop nothing
+//mcheck=1 to crop mathy stuff
+//mcheck=2 to crop comma (e.g. for incbin)
 void getword(char *dst,char **src,int mcheck) {
 	*src+=strspn(*src,whitesp);//eatwhitespace
 	strncpy(dst,*src,WORDMAX-1);
 	dst[WORDMAX-1]=0;
 	strtok(dst,whitesp);//no trailing whitespace
-	if(mcheck) strtok(dst,mathy);
+	if(mcheck==1) strtok(dst,mathy);
+	else if(mcheck==2) strtok(dst,",");
 	*src+=strlen(dst);
 	if(**src==':') (*src)++;//cheesy fix for rept/macro listing
 }
@@ -943,7 +946,7 @@ void getfilename(char *dst, char **next) {
 			*next=end;
 		}
 	} else {
-		getword(dst,next,0);
+		getword(dst,next,2);
 	}
 }
 
