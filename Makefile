@@ -12,12 +12,14 @@ else
   RM=rm -f
 endif
 
+CFLAGS=-Wall
+
 .PHONY: all safe clean
 
 all: safe
 
 safe:
-	$(CC) -o $(BINARY) asm6f.c
+	$(CC) $(CFLAGS) -o $(BINARY) asm6f.c
 
 clean:
 	$(RM) $(BINARY)
