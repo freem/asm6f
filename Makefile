@@ -1,19 +1,23 @@
-# cobbled together really fast
-CC = gcc
-
-# no matter how hard I try, I can't get make to accept that I'm on windows.
-ifneq ($(shell echo),)
-  DOTEXE=.exe
+# Detect Cygwin vs. native Windows, fall back to Linux
+ifeq ($(OS),Windows_NT)
+  ifeq ($(OSTYPE),cygwin)
+    BINARY=asm6f
+    RM=rm -f
+  else
+    BINARY=asm6f.exe
+    RM=del /Q /F
+  endif
+else
+  BINARY=asm6f
+  RM=rm -f
 endif
 
-.PHONY: all clean
+.PHONY: all safe clean
 
 all: safe
 
 safe:
-	$(CC) -Wall asm6f.c -o asm6f
+	$(CC) -o $(BINARY) asm6f.c
 
-# sorry to linux people for forcing .exe but I can't get this makefile to determine
-# that I'm really on windows
 clean:
-	$(RM) asm6f$(DOTEXE) *.exe
+	$(RM) $(BINARY)
