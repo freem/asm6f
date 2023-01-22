@@ -508,7 +508,7 @@ static void* ptr_from_bool( int b )
 {
 	if ( b )
 		return true_ptr;
-	
+
 	return NULL;
 }
 
@@ -517,18 +517,18 @@ static void* ptr_from_bool( int b )
 static void fatal_error( const char fmt [], ... )
 {
 	va_list args;
-	
+
 	if ( outputfile != NULL ) {
 		fclose( outputfile );
 		remove( outputfilename );
 	}
-	
+
 	va_start( args, fmt );
 	fprintf( stderr, "\nError: " );
 	vfprintf( stderr, fmt, args );
 	fprintf( stderr, "\n\n" );
 	va_end( args );
-	
+
 	exit( EXIT_FAILURE );
 }
 
@@ -549,7 +549,7 @@ static char* my_malloc( size_t s )
 	char* p = malloc( s ? s : 1 );
 	if ( p == NULL )
 		fatal_error( "out of memory" );
-	
+
 	return p;
 }
 
@@ -572,7 +572,7 @@ static char* my_strdup(const char *in)
 char *my_strupr(char *string)
 {
 	char *s;
-	
+
 	if (string == NULL) {
 		return (char *)NULL;
 	}
@@ -632,12 +632,12 @@ int getvalue(char **str) {
 		errmsg=MissingOperand;
 		return 0;
 	}
-	
+
 	ret=chars=0;
 	if(*s=='$') {   //hex---------------------
 		s++;
 		if(!*s) {
-			ret=addr;//$ by itself is the PC			
+			ret=addr;//$ by itself is the PC
 		} else do {
 hexi:	   j=hexify(*s);
 			s++;
@@ -784,7 +784,7 @@ int eval(char **str,int precedence) {
 	char *s,*s2;
 	int ret,val2;
 	int op;
-	
+
 	s=*str+strspn(*str,whitesp);		//eatwhitespace
 	unary=*s;
 	switch(unary) {
@@ -952,7 +952,7 @@ label *getreserved(char **src) {
 	char dst[WORDMAX];
 	char upp[WORDMAX];
 	label *p;
-	
+
 	*src+=strspn(*src,whitesp);//eatwhitespace
 	if(**src=='=') {//special '=' reserved word
 		upp[0]='=';
@@ -984,7 +984,7 @@ label *getreserved(char **src) {
 int getlabel(char *dst,char **src) {
 	char *s;
 	char c;
-	
+
 	getword(dst,src,1);
 	if(*dst=='$'&&!dst[1])//'$' label
 		return 1;
@@ -1053,7 +1053,7 @@ char *expandline(char *dst,char *src) {
 
 			FOO equ xxxx
 			ifdef FOO
-				
+
 			  becomes
 
 			FOO equ xxxx
@@ -1420,16 +1420,16 @@ void addlabel(char *word, int local) {
 void initlabels(void) {
 	label *p;
 	int i=0;
-	
+
 	labels=1;
 	labellist=(label**)my_malloc(INITLISTSIZE*sizeof(label*));
 	labelstart=INITLISTSIZE/2;
 	labelend=labelstart;
 	maxlabels=INITLISTSIZE;
 	labellist[labelstart]=&firstlabel;//'$' label
-	
+
 	//add reserved words to label list
-	
+
 	do {//opcodes first
 		findlabel(rsvdlist[i]);//must call findlabel before using newlabel
 		p=newlabel();
@@ -1485,7 +1485,7 @@ void addcomment(char* text) {
 		char* newtext = my_malloc(oldtextlen + strlen(text) + 4);
 		strcpy(newtext, oldtext);
 		strcpy(newtext + oldtextlen, "\\n");
-		
+
 		//Get rid of last character (newline \n)
 		strcpy(newtext + oldtextlen + 2, text);
 		newtext[strlen(newtext) - 1] = '\0';
@@ -1497,11 +1497,11 @@ void addcomment(char* text) {
 		comment* c = (comment*)my_malloc(sizeof(comment));
 		c->pos = filepos;
 		c->text = my_malloc(strlen(text)+1);
-		strcpy(c->text, text);		
-		
+		strcpy(c->text, text);
+
 		//Get rid of last character (newline \n)
 		c->text[strlen(text) - 1] = '\0';
-		
+
 		comments[commentcount] = c;
 		commentcount++;
 
@@ -1568,7 +1568,7 @@ label *findlabel(char *name) {
 void growlist(void) {
 	label **tmp;
 	int newhead;
-	
+
 	maxlabels<<=1;
 	newhead=maxlabels/2-labels/2;
 	tmp=(label**)my_malloc(maxlabels*sizeof(label*));
@@ -1627,7 +1627,7 @@ label *newlabel(void) {
 void showerror(char *errsrc,int errline) {
 	error=1;
 	fprintf(stderr,"%s(%i): %s\n",errsrc,errline,errmsg);
-	
+
 	if(!listerr)//only list the first error for this line
 		listerr=errmsg;
 }
@@ -1889,7 +1889,7 @@ int main(int argc,char **argv) {
 	}
 	if(!inputfilename) 
 		fatal_error("No source file specified.");
-	
+
 	strcpy(str,inputfilename);
 	nameptr=strrchr(str,'.');//nameptr='.' ptr
 	if(nameptr) if(strchr(nameptr,'\\')) nameptr=0;//watch out for "dirname.ext\listfile"
@@ -1935,7 +1935,7 @@ int main(int argc,char **argv) {
 			message("pass %i..\n",pass);
 		needanotherpass=0;
 		skipline[0]=0;
-		scope=1;		
+		scope=1;
 		nextscope=2;
 		defaultfiller=DEFAULTFILLER;	//reset filler value
 		addr=NOORIGIN;//undefine origin
@@ -1948,20 +1948,20 @@ int main(int argc,char **argv) {
 			fputs(errmsg, stderr);//bad inputfile??
 		}
 	} while(!error && !lastchance && needanotherpass);//while no hard errors, not final try, and labels are still unresolved
-	
+
 	if(outputfile) {
 		// Be sure last of output file is written properly
 		int result;
 		if ( fwrite(outputbuff,1,outcount,outputfile) < (size_t)outcount || fflush( outputfile ) )
 			fatal_error( "Write error." );
-		
+
 		i=ftell(outputfile);
-		
+
 		result = fclose(outputfile);
 		outputfile = NULL; // prevent fatal_error() from trying to close file again
 		if ( result )
 			fatal_error( "Write error." );
-		
+
 		if(!error) {
 			message("%s written (%i bytes).\n",outputfilename,i);
 		} else
@@ -2169,7 +2169,7 @@ void equal(label *id,char **next) {
 	}
 }
 
-void base(label *id, char **next) {	
+void base(label *id, char **next) {
 	int val;
 	dependant=0;
 	val=eval(next,WHOLEEXP);
@@ -2426,7 +2426,7 @@ void opcode(label *id, char **next) {
 			fatal_error("Highly unstable instruction \"%s\" used without calling HUNSTABLE.",(*id).name);
 		}
 	}
-		
+
 	for(op=(byte*)(*id).line;op[1]!=0xff;op+=2) {//loop through all addressing modes for this instruction
 		needanotherpass=oldstate;
 		strcpy(tmpstr,*next);
@@ -2569,7 +2569,7 @@ void macro(label *id, char **next) {
 	char *src;
 	char word[WORDMAX];
 	int params;
-	
+
 	labelhere=0;
 	if(getlabel(word,next))
 		addlabel(word,0);
@@ -2614,7 +2614,7 @@ void expandmacro(label *id,char **next,int errline,char *errsrc) {
 	int oldscope;
 	int arg, args;
 	char c,c2,*s,*s2,*s3;
-	
+
 	if((*id).used) {
 		errmsg=RecurseMACRO;
 		return;
@@ -2673,7 +2673,7 @@ void expandmacro(label *id,char **next,int errline,char *errsrc) {
 
 	while(line) {
 		linecount++;
-		processline((char*)&line[1],macroerr,linecount);		
+		processline((char*)&line[1],macroerr,linecount);
 		line=(char**)*line;
 	}
 	errmsg=0;
@@ -2790,7 +2790,7 @@ void inesprg(label *id, char **next) {
 
 	if(inesprg_num < 0 || inesprg_num > 0xFF)
 		errmsg=OutOfRange;
-	
+
 	ines_include++;
 }
 
@@ -2799,7 +2799,7 @@ void ineschr(label *id, char **next) {
 
 	if(ineschr_num < 0 || ineschr_num > 0xFF)
 		errmsg=OutOfRange;
-	
+
 	ines_include++;
 }
 
@@ -2809,7 +2809,7 @@ void inesmir(label *id, char **next) {
 	//force 4 bits
 	if(inesmir_num > 16 || inesmir_num < 0)
 		errmsg=OutOfRange;
-	
+
 	ines_include++;
 }
 
@@ -2819,7 +2819,7 @@ void inesmap(label *id, char **next) {
 	//ines 2.0 allows for some big numbers...
 	if(inesmap_num > 4095 || inesmap_num < 0)
 		errmsg=OutOfRange;
-	
+
 	ines_include++;
 }
 
@@ -2828,7 +2828,7 @@ void nes2chrram(label *id, char **next) {
 
 	if (nes2chr_num < 0 || nes2chr_num > 16)
 		errmsg=OutOfRange;
-	
+
 	ines_include++; use_nes2 = 1;
 }
 
@@ -2837,7 +2837,7 @@ void nes2prgram(label *id, char **next) {
 
 	if (nes2prg_num < 0 || nes2prg_num > 16)
 		errmsg=OutOfRange;
-	
+
 	ines_include++; use_nes2 = 1;
 }
 
@@ -2846,7 +2846,7 @@ void nes2sub(label *id, char **next) {
 
 	if (nes2sub_num < 0 || nes2sub_num > 16)
 		errmsg=OutOfRange;
-	
+
 	ines_include++; use_nes2 = 1;
 }
 
@@ -2862,7 +2862,7 @@ void nes2tv(label *id, char **next) {
 
 	if(nes2tv_num > 2 || nes2tv_num < 0)
 		errmsg=OutOfRange;
-	
+
 	ines_include++; use_nes2 = 1;
 }
 
@@ -2876,7 +2876,7 @@ void nes2bram(label *id, char **next) {
 
 	if (nes2bram_num < 0 || nes2bram_num > 16)
 		errmsg=OutOfRange;
-	
+
 	ines_include++; use_nes2 = 1;
 }
 
@@ -2885,6 +2885,6 @@ void nes2chrbram(label *id, char **next) {
 
 	if (nes2chrbram_num < 0 || nes2chrbram_num > 16)
 		errmsg=OutOfRange;
-	
+
 	ines_include++; use_nes2 = 1;
 }
