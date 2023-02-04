@@ -38,7 +38,8 @@ Options:
         -n         export FCEUX-compatible .nl files
         -f         export Lua symbol file
         -c         export .cdl for use with FCEUX/Mesen
-        -m         export Mesen-compatible label file (.mlb)
+        -m         export new style Mesen-compatible label file (.mlb)
+        -M         export old style Mesen-compatible label file (.mlb)
         Default output is <sourcefile>.bin
         Default listing is <sourcefile>.lst
 
