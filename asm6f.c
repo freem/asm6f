@@ -1,7 +1,7 @@
 /* asm6f - asm6 with modifications for NES/Famicom development */
 
 /*  asm6f History:
-1.6 + Knuckles
+1.6 + f003
 	* [controllerhead] Added support for newer/older Mesen-compatible (.mlb) label export.
 	
 1.6 + f002
