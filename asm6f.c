@@ -1,6 +1,9 @@
 /* asm6f - asm6 with modifications for NES/Famicom development */
 
 /*  asm6f History:
+1.6 + Knuckles
+	* [controllerhead] Added support for newer/older Mesen-compatible (.mlb) label export.
+	
 1.6 + f002
 	* [nicklausw] Added new directives for INES header generation.
 	* [nicklausw] Put unstable/highly unstable opcode use behind directives,
@@ -1261,6 +1264,13 @@ void export_mesenlabels() {
 	char filename[512];
 	char *strptr;
 	FILE* outfile;
+	
+	// Support for newer/older style Mesen labels
+	// It could probably be cleaner, i tried...
+	enum memoryTypes {reg=0,prg=1,iram=2,sram=3,wram=4};
+	char *mType[] = {"G","P","R","S","W","NesMemory","NesPrgRom","NesInternalRam","NesSaveRam","NesWorkRam"};
+	int lType=0;
+	if(genmesenlabels == 2) lType=5;																						
 
 	strcpy(filename, outputfilename);
 
@@ -1299,7 +1309,8 @@ void export_mesenlabels() {
 				if(c->pos < l->pos) {
 					//This comment is for a line before the current code label, write it to the file right away
 					if(c->pos >= 16) {
-						sprintf(str, "P:%04X::", (unsigned int)c->pos - 16);
+						fwrite((const void *)mType[prg+lType], 1, strlen(mType[prg+lType]),outfile);
+						sprintf(str, ":%04X::", (unsigned int)c->pos - 16);
 						fwrite((const void *)str, 1, strlen(str), outfile);
 						fwrite((const void *)c->text, 1, strlen(c->text), outfile);
 						fwrite("\n", 1, 1, outfile);
@@ -1316,7 +1327,8 @@ void export_mesenlabels() {
 			}
 
 			//Dump the label
-			sprintf(str, "P:%04X:%s", (unsigned int)(l->pos - 16), l->name);
+			fwrite((const void *)mType[prg+lType], 1, strlen(mType[prg+lType]),outfile);
+			sprintf(str, ":%04X:%s", (unsigned int)(l->pos - 16), l->name);
 			fwrite((const void *)str, 1, strlen(str), outfile);
 
 			if(commenttext) {
@@ -1328,14 +1340,19 @@ void export_mesenlabels() {
 			//These are potentially aliases for variables in RAM, or read/write registers, etc.
 			if(l->value < 0x2000) {
 				//Assume nes internal RAM below $2000 (2kb)
-				sprintf(str, "R:%04X:%s\n", (unsigned int)l->value, l->name);
+				fwrite((const void *)mType[iram+lType], 1, strlen(mType[iram+lType]),outfile);
+				sprintf(str, ":%04X:%s\n", (unsigned int)l->value, l->name);							 
 			} else if(l->value >= 0x6000 && l->value < 0x8000) {
 				//Assume save/work RAM ($6000-$7FFF), dump as both. (not the best solution - maybe an option?)
-				sprintf(str, "S:%04X:%s\n", (unsigned int)l->value - 0x6000, l->name);
-				sprintf(str, "W:%04X:%s\n", (unsigned int)l->value - 0x6000, l->name);
+				fwrite((const void *)mType[sram+lType], 1, strlen(mType[sram+lType]),outfile);
+				sprintf(str, ":%04X:%s\n", (unsigned int)l->value - 0x6000, l->name);
+				fwrite((const void *)mType[wram+lType], 1, strlen(mType[wram+lType]),outfile);
+				sprintf(str, ":%04X:%s\n", (unsigned int)l->value - 0x6000, l->name);
+				
 			} else {
 				//Assume a global register for everything else (e.g $8000 for mapper control, etc.)
-				sprintf(str, "G:%04X:%s\n", (unsigned int)l->value, l->name);
+				fwrite((const void *)mType[reg+lType], 1, strlen(mType[reg+lType]),outfile);
+				sprintf(str, ":%04X:%s\n", (unsigned int)l->value, l->name);
 			}
 			fwrite((const void *)str, 1, strlen(str), outfile);
 		}
@@ -1850,8 +1867,11 @@ int main(int argc,char **argv) {
 				case 'n':
 					genfceuxnl=1;
 					break;
-				case 'm':
+				case 'M':
 					genmesenlabels=1;
+					break;
+				case 'm':
+					genmesenlabels=2;
 					break;
 				case 'c':
 					gencdl = 1;
