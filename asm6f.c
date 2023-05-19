@@ -41,6 +41,7 @@
 #include <stdlib.h>
 #include <stddef.h>
 #include <ctype.h>
+#include <stdarg.h>
 
 #define VERSION "1.6"
 
@@ -127,9 +128,6 @@ int nes2wram_num = 0;
 int nes2bram_num = 0;
 int nes2chrbram_num = 0;
 
-#define fatal_error(fmt, args...) { fprintf(stderr, "\nError: " fmt "\n\n", ## args); DIE(); }
-#define message(fmt, args...) if (verbose) { printf(fmt, ## args); }
-
 void inesprg(label*, char**);
 void ineschr(label*, char**);
 void inesmir(label*, char**);
@@ -143,7 +141,6 @@ void nes2vs(label*, char**);
 void nes2bram(label*, char**);
 void nes2chrbram(label*, char**);
 
-void DIE(void);
 label *findlabel(char*);
 void initlabels();
 label *newlabel();
@@ -443,7 +440,6 @@ char DivZero[]="Divide by zero.";
 char BadAddr[]="Can't determine address.";
 char NeedName[]="Need a name.";
 char CantOpen[]="Can't open file.";
-char CantRead[]="Can't read file (possible I/O error).";
 char ExtraENDM[]="ENDM without MACRO.";
 char ExtraENDR[]="ENDR without REPT.";
 char ExtraENDE[]="ENDE without ENUM.";
@@ -516,15 +512,35 @@ static void* ptr_from_bool( int b )
 	return NULL;
 }
 
+// Prints printf-style message to stderr, then exits.
 // Closes and deletes output file.
-// Commonly used alongside fatal_error() macro.
-void DIE(void) {
+static void fatal_error( const char fmt [], ... )
+{
+	va_list args;
+
 	if ( outputfile != NULL ) {
 		fclose( outputfile );
 		remove( outputfilename );
 	}
 
+	va_start( args, fmt );
+	fprintf( stderr, "\nError: " );
+	vfprintf( stderr, fmt, args );
+	fprintf( stderr, "\n\n" );
+	va_end( args );
+
 	exit( EXIT_FAILURE );
+}
+
+// Prints printf-style message if verbose mode is enabled.
+static void message( const char fmt [], ... )
+{
+	if ( verbose ) {
+		va_list args;
+		va_start( args, fmt );
+		vprintf( fmt, args );
+		va_end( args );
+	}
 }
 
 // Same as malloc(), but prints error and exits if allocation fails
@@ -897,16 +913,13 @@ int eval(char **str,int precedence) {
 }
 
 //copy next word from src into dst and advance src
-//mcheck=0 to crop nothing
-//mcheck=1 to crop mathy stuff
-//mcheck=2 to crop comma (e.g. for incbin)
+//mcheck=1 to crop mathy stuff (0 for filenames, etc.)
 void getword(char *dst,char **src,int mcheck) {
 	*src+=strspn(*src,whitesp);//eatwhitespace
 	strncpy(dst,*src,WORDMAX-1);
 	dst[WORDMAX-1]=0;
 	strtok(dst,whitesp);//no trailing whitespace
-	if(mcheck==1) strtok(dst,mathy);
-	else if(mcheck==2) strtok(dst,",");
+	if(mcheck) strtok(dst,mathy);
 	*src+=strlen(dst);
 	if(**src==':') (*src)++;//cheesy fix for rept/macro listing
 }
@@ -930,7 +943,7 @@ void getfilename(char *dst, char **next) {
 			*next=end;
 		}
 	} else {
-		getword(dst,next,2);
+		getword(dst,next,0);
 	}
 }
 
@@ -2191,8 +2204,7 @@ void include(label *id,char **next) {
 }
 
 void incbin(label *id,char **next) {
-	int filesize, seekpos, bytesleft;
-	size_t i;
+	int filesize, seekpos, bytesleft, i;
 	FILE *f=0;
 
 	do {
@@ -2225,10 +2237,7 @@ void incbin(label *id,char **next) {
 		while(bytesleft) {
 			if(bytesleft>BUFFSIZE) i=BUFFSIZE;
 			else i=bytesleft;
-			if (fread(inputbuff,1,i,f) != i) {
-				errmsg=CantRead;
-				break;
-			}
+			fread(inputbuff,1,i,f);
 			output(inputbuff,i,DATA);
 			bytesleft-=i;
 		}
