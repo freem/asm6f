@@ -1,7 +1,11 @@
 /* asm6f - asm6 with modifications for NES/Famicom development */
 
 /*  asm6f History:
-1.6 + f002
+1.6 + f003
+	* [controllerhead] +/- labels do not break @local scope
+	* [controllerhead] Added support for newer/older Mesen-compatible (.mlb) label export.
+
+1.6 + f002 (March 10, 2018)
 	* [nicklausw] Added new directives for INES header generation.
 	* [nicklausw] Put unstable/highly unstable opcode use behind directives,
 	  instead of requiring separate executables.
@@ -9,9 +13,8 @@
 	* [Sour] Add support for .cdl file generation, for use with FCEUX and Mesen.
 	* [Sour] Add support for Mesen-compatible (.mlb) label export.
 	* [freem] Fixed issue where the last symbol would not appear in an .nl file.
-	* [controllerhead] +/- labels do not break @local scope
 
-1.6 + freem modifications
+1.6 + freem modifications (June 24, 2015)
 	Added preliminary support for undocumented/illegal opcodes.
 	Added sonder's code to export the .nl files for FCEUX symbolic debugging.
 */
@@ -1275,6 +1278,13 @@ void export_mesenlabels() {
 	char *strptr;
 	FILE* outfile;
 
+	// Support for newer/older style Mesen labels
+	// It could probably be cleaner, i tried...
+	enum memoryTypes {reg=0,prg=1,iram=2,sram=3,wram=4};
+	char *mType[] = {"G","P","R","S","W","NesMemory","NesPrgRom","NesInternalRam","NesSaveRam","NesWorkRam"};
+	int lType=0;
+	if(genmesenlabels == 2) lType=5;
+
 	strcpy(filename, outputfilename);
 
 	strptr = strrchr(filename, '.'); // strptr ='.'ptr
@@ -1312,7 +1322,8 @@ void export_mesenlabels() {
 				if(c->pos < l->pos) {
 					//This comment is for a line before the current code label, write it to the file right away
 					if(c->pos >= 16) {
-						sprintf(str, "P:%04X::", (unsigned int)c->pos - 16);
+						fwrite((const void *)mType[prg+lType], 1, strlen(mType[prg+lType]),outfile);
+						sprintf(str, ":%04X::", (unsigned int)c->pos - 16);
 						fwrite((const void *)str, 1, strlen(str), outfile);
 						fwrite((const void *)c->text, 1, strlen(c->text), outfile);
 						fwrite("\n", 1, 1, outfile);
@@ -1329,7 +1340,8 @@ void export_mesenlabels() {
 			}
 
 			//Dump the label
-			sprintf(str, "P:%04X:%s", (unsigned int)(l->pos - 16), l->name);
+			fwrite((const void *)mType[prg+lType], 1, strlen(mType[prg+lType]),outfile);
+			sprintf(str, ":%04X:%s", (unsigned int)(l->pos - 16), l->name);
 			fwrite((const void *)str, 1, strlen(str), outfile);
 
 			if(commenttext) {
@@ -1341,14 +1353,18 @@ void export_mesenlabels() {
 			//These are potentially aliases for variables in RAM, or read/write registers, etc.
 			if(l->value < 0x2000) {
 				//Assume nes internal RAM below $2000 (2kb)
-				sprintf(str, "R:%04X:%s\n", (unsigned int)l->value, l->name);
+				fwrite((const void *)mType[iram+lType], 1, strlen(mType[iram+lType]),outfile);
+				sprintf(str, ":%04X:%s\n", (unsigned int)l->value, l->name);							 
 			} else if(l->value >= 0x6000 && l->value < 0x8000) {
 				//Assume save/work RAM ($6000-$7FFF), dump as both. (not the best solution - maybe an option?)
-				sprintf(str, "S:%04X:%s\n", (unsigned int)l->value - 0x6000, l->name);
-				sprintf(str, "W:%04X:%s\n", (unsigned int)l->value - 0x6000, l->name);
+				fwrite((const void *)mType[sram+lType], 1, strlen(mType[sram+lType]),outfile);
+				sprintf(str, ":%04X:%s\n", (unsigned int)l->value - 0x6000, l->name);
+				fwrite((const void *)mType[wram+lType], 1, strlen(mType[wram+lType]),outfile);
+				sprintf(str, ":%04X:%s\n", (unsigned int)l->value - 0x6000, l->name);
 			} else {
 				//Assume a global register for everything else (e.g $8000 for mapper control, etc.)
-				sprintf(str, "G:%04X:%s\n", (unsigned int)l->value, l->name);
+				fwrite((const void *)mType[reg+lType], 1, strlen(mType[reg+lType]),outfile);
+				sprintf(str, ":%04X:%s\n", (unsigned int)l->value, l->name);
 			}
 			fwrite((const void *)str, 1, strlen(str), outfile);
 		}
@@ -1783,7 +1799,7 @@ badlabel:
 
 void showhelp(void) {
 	puts("");
-	puts("asm6f " VERSION " (+ freem modifications)\n");
+	puts("asm6f " VERSION " (+ f003)\n");
 	puts("Usage:  asm6f [-options] sourcefile [outputfile] [listfile]\n");
 	puts("\t-?\t\tshow this help");
 	puts("\t-l\t\tcreate listing");
@@ -1794,7 +1810,8 @@ void showhelp(void) {
 	puts("\t-n\t\texport FCEUX-compatible .nl files");
 	puts("\t-f\t\texport Lua symbol file");
 	puts("\t-c\t\texport .cdl for use with FCEUX/Mesen");
-	puts("\t-m\t\texport Mesen-compatible label file (.mlb)\n");
+	puts("\t-m\t\texport new format Mesen label file (.mlb)\n");
+	puts("\t-M\t\texport old format Mesen label file (.mlb)\n");
 	puts("See README.TXT for more info.\n");
 }
 
@@ -1863,8 +1880,11 @@ int main(int argc,char **argv) {
 				case 'n':
 					genfceuxnl=1;
 					break;
-				case 'm':
+				case 'M':
 					genmesenlabels=1;
+					break;
+				case 'm':
+					genmesenlabels=2;
 					break;
 				case 'c':
 					gencdl = 1;
