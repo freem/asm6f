@@ -4,6 +4,7 @@
 1.6 + f003
 	* [controllerhead] +/- labels do not break @local scope
 	* [controllerhead] Added support for newer/older Mesen-compatible (.mlb) label export.
+	* [dttdndn] fix for famistudio sound engine
 
 1.6 + f002 (March 10, 2018)
 	* [nicklausw] Added new directives for INES header generation.
@@ -2174,6 +2175,10 @@ void equ(label *id, char **next) {
 			}
 		} else if((*labelhere).type!=EQUATE) {
 			errmsg=LabelDefined;
+		}
+		// [dttdndn] fix for famistudio sound engine
+		else{
+			(*labelhere).line = my_strdup(s); // ***** MISSING ASSIGNMENT HERE *****
 		}
 		*s=0;//end line
 	}
