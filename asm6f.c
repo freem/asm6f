@@ -5,6 +5,7 @@
 	* [controllerhead] +/- labels do not break @local scope
 	* [controllerhead] Added support for newer/older Mesen-compatible (.mlb) label export.
 	* [dttdndn] fix for famistudio sound engine
+	* [morskoyzmey] Absolute addressing support for zero page addresses.
 
 1.6 + f002 (March 10, 2018)
 	* [nicklausw] Added new directives for INES header generation.
@@ -145,7 +146,7 @@ void nes2vs(label*, char**);
 void nes2bram(label*, char**);
 void nes2chrbram(label*, char**);
 
-label *findlabel(char*);
+label *findlabel(const char*);
 void initlabels();
 label *newlabel();
 void getword(char*,char**,int);
@@ -624,9 +625,11 @@ char *strend(char *str, char *whitespace) {
 //set errmsg on error
 char gvline[WORDMAX];
 int dependant;//set to nonzero if symbol couldn't be resolved
+int chars; // [morskoyzmey absolute addressing change]
+int absolute = 0; // [morskoyzmey absolute addressing change]
 int getvalue(char **str) {
 	char *s,*end;
-	int ret,chars,j;
+	int ret,j;
 	label *p;
 
 	getword(gvline,str,1);
@@ -792,6 +795,17 @@ int eval(char **str,int precedence) {
 	s=*str+strspn(*str,whitesp);		//eatwhitespace
 	unary=*s;
 	switch(unary) {
+		// [morskoyzmey absolute addressing change]
+		case 'a':
+			if(*(s+1)==':'){
+				s+=2;
+				absolute=1;
+				ret=eval(&s,WHOLEEXP);
+			}
+			else{
+				ret=getvalue(&s);
+			}
+			break;
 		case '(':
 			s++;
 			ret=eval(&s,WHOLEEXP);
@@ -1533,7 +1547,7 @@ void addcomment(char* text) {
 //don't call if list is empty!
 int findcmp;		//(these are used by newlabel)
 int findindex;	  //.
-label *findlabel(char *name) {
+label *findlabel(const char *name) {
 	int head,tail;
 	label *p, *global;
 
@@ -2437,6 +2451,7 @@ void opcode(label *id, char **next) {
 	byte *op;
 	int oldstate=needanotherpass;
 	int forceRel = 0;
+	absolute = 0;
 
 	int uns;
 	if (!allowunstable) {
@@ -2477,6 +2492,12 @@ void opcode(label *id, char **next) {
 				}
 			} else {
 				if(opsize[type]==1) {
+					// [morskoyzmey absolute addressing change]
+					if(type == ZP || type == ZPX || type ==ZPY){
+						if(absolute || chars == 4){
+							continue;
+						}
+					}
 					if(!dependant) {
 						if(val>255 || val<-128)
 							errmsg=OutOfRange;
