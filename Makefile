@@ -1,6 +1,9 @@
-# Detect Cygwin vs. native Windows, fall back to Linux
+# Detect Cygwin vs. MSYS2 vs. native Windows, fall back to Linux
 ifeq ($(OS),Windows_NT)
   ifeq ($(OSTYPE),cygwin)
+    BINARY=asm6f
+    RM=rm -f
+  else ifeq ($(OSTYPE),msys)
     BINARY=asm6f
     RM=rm -f
   else
