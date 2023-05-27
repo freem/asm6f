@@ -18,7 +18,8 @@ Features compared to stock ASM6
 * Support for iNES original and 2.0 header insertion.
 * Output of .cdl files, for use with FCEUX/Mesen.
 * Output of Mesen-compatible symbol files.
-* Generic +/- labels do not break @local scope
+* Generic +/- labels do not break @local scope.
+* Support for a: prefix to force absolute addressing for zero-page addresses.
 
 --------------------------------------------------------------
 Command line
