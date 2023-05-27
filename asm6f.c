@@ -1369,7 +1369,7 @@ void export_mesenlabels() {
 			if(l->value < 0x2000) {
 				//Assume nes internal RAM below $2000 (2kb)
 				fwrite((const void *)mType[iram+lType], 1, strlen(mType[iram+lType]),outfile);
-				sprintf(str, ":%04X:%s\n", (unsigned int)l->value, l->name);							 
+				sprintf(str, ":%04X:%s\n", (unsigned int)l->value, l->name);
 			} else if(l->value >= 0x6000 && l->value < 0x8000) {
 				//Assume save/work RAM ($6000-$7FFF), dump as both. (not the best solution - maybe an option?)
 				fwrite((const void *)mType[sram+lType], 1, strlen(mType[sram+lType]),outfile);
