@@ -225,7 +225,7 @@ int filepos=0;
 enum optypes {ACC,IMM,IND,INDX,INDY,ZPX,ZPY,ABSX,ABSY,ZP,ABS,REL,IMP};
 int opsize[]={0,1,2,1,1,1,1,2,2,1,2,1,0};
 char ophead[]={0,'#','(','(','(',0,0,0,0,0,0,0,0};
-char *optail[]={"A","",")",",X)","),Y",",X",",Y",",X",",Y","","","",""};
+const char *optail[]={"A","",")",",X)","),Y",",X",",Y",",X",",Y","","","",""};
 byte brk[]={0x00,IMM,0x00,ZP,0x00,IMP,-1,-1};
 byte ora[]={0x09,IMM,0x01,INDX,0x11,INDY,0x15,ZPX,0x1d,ABSX,0x19,ABSY,0x05,ZP,0x0d,ABS,-1,-1};
 byte asl[]={0x0a,ACC,0x16,ZPX,0x1e,ABSX,0x06,ZP,0x0e,ABS,0x0a,IMP,-1,-1};
@@ -313,7 +313,7 @@ byte tas[]={0x9b,ABSY,-1,-1};
 byte xaa[]={0x8b,IMM,-1,-1};
 //byte lax[]={0xab,IMM,-1,-1};
 
-void *rsvdlist[]={	   //all reserved words
+const void *rsvdlist[]={	   //all reserved words
 		"BRK",brk,
 		"PHP",php,
 		"BPL",bpl,
@@ -399,12 +399,12 @@ void *rsvdlist[]={	   //all reserved words
 		0, 0
 };
 
-char *unstablelist[]={
+const char *unstablelist[]={
 	"AHX", "SHY", "SHX", "TAS"
 };
 
 struct {
-	char* name;
+	const char* name;
 	void (*func)( label*, char** );
 } directives[]={
 		{"",nothing},
@@ -1320,7 +1320,7 @@ void export_mesenlabels() {
 	// Support for newer/older style Mesen labels
 	// It could probably be cleaner, i tried...
 	enum memoryTypes {reg=0,prg=1,iram=2,sram=3,wram=4};
-	char *mType[] = {"G","P","R","S","W","NesMemory","NesPrgRom","NesInternalRam","NesSaveRam","NesWorkRam"};
+	const char *mType[] = {"G","P","R","S","W","NesMemory","NesPrgRom","NesInternalRam","NesSaveRam","NesWorkRam"};
 	int lType=0;
 	if(genmesenlabels == 2) lType=5;
 
@@ -1490,7 +1490,7 @@ void initlabels(void) {
 		p=newlabel();
 		(*p).name=rsvdlist[i];
 		(*p).value=(ptrdiff_t)opcode;
-		(*p).line=rsvdlist[i+1];
+		(*p).line=(void*)rsvdlist[i+1];
 		(*p).type=RESERVED;
 		i+=2;
 	} while(rsvdlist[i]);
@@ -2470,7 +2470,8 @@ void org(label *id, char **next) {
 }
 
 void opcode(label *id, char **next) {
-	char *s,*s2;
+	char *s;
+	const char *s2;
 	int type,val = 0;
 	byte *op;
 	int oldstate=needanotherpass;
