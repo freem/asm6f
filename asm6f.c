@@ -468,6 +468,7 @@ char DivZero[]="Divide by zero.";
 char BadAddr[]="Can't determine address.";
 char NeedName[]="Need a name.";
 char CantOpen[]="Can't open file.";
+char CantRead[]="Can't read file (possible I/O error).";
 char ExtraENDM[]="ENDM without MACRO.";
 char ExtraENDR[]="ENDR without REPT.";
 char ExtraENDE[]="ENDE without ENUM.";
@@ -2270,7 +2271,8 @@ void include(label *id,char **next) {
 }
 
 void incbin(label *id,char **next) {
-	int filesize, seekpos, bytesleft, i;
+	int filesize, seekpos, bytesleft;
+	size_t i;
 	FILE *f=0;
 
 	do {
@@ -2303,7 +2305,10 @@ void incbin(label *id,char **next) {
 		while(bytesleft) {
 			if(bytesleft>BUFFSIZE) i=BUFFSIZE;
 			else i=bytesleft;
-			fread(inputbuff,1,i,f);
+			if (fread(inputbuff,1,i,f) != i) {
+				errmsg=CantRead;
+				break;
+			}
 			output(inputbuff,i,DATA);
 			bytesleft-=i;
 		}
