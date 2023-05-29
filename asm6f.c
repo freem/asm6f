@@ -2586,7 +2586,7 @@ void ifdef(label *id,char **next) {
 	else
 		iflevel++;
 	getlabel(s,next);
-	skipline[iflevel]=!(ptrdiff_t)findlabel(s) || skipline[iflevel-1];
+	skipline[iflevel]=!findlabel(s) || skipline[iflevel-1];
 	ifdone[iflevel]=!skipline[iflevel];
 }
 
@@ -2597,7 +2597,7 @@ void ifndef(label *id,char **next) {
 	else
 		iflevel++;
 	getlabel(s,next);
-	skipline[iflevel]=(ptrdiff_t)findlabel(s) || skipline[iflevel-1];
+	skipline[iflevel]=findlabel(s) || skipline[iflevel-1];
 	ifdone[iflevel]=!skipline[iflevel];
 }
 
