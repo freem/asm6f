@@ -1168,7 +1168,7 @@ void reverse(char *dst,char *src) {
 
 //===========================================================================================================
 /* [freem addition(imported code from asm6_sonder.c)] */
-void export_labelfiles() {
+void export_labelfiles(void) {
 	// iterate through all the labels and output FCEUX-compatible label info files
 	// based on their type (LABEL's,EQUATE's,VALUE's), address (ram/rom), and position (bank)
 
@@ -1245,7 +1245,7 @@ void export_labelfiles() {
 }
 
 
-void export_lua() {
+void export_lua(void) {
 	// iterate through all the labels and output Lua-compatible label info files
 
 	int i;
@@ -1306,7 +1306,7 @@ int comparecomments(const void* arg1, const void* arg2)
 	return strcmp(a->text, b->text);
 }
 
-void export_mesenlabels() {
+void export_mesenlabels(void) {
 	// iterate through all the labels and output Mesen-compatible label files
 	// based on their type (LABEL's,EQUATE's,VALUE's) and address (ram/rom)
 	int i;
