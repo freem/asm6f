@@ -1322,6 +1322,8 @@ void export_mesenlabels(void) {
 	enum memoryTypes {reg=0,prg=1,iram=2,sram=3,wram=4};
 	const char *mType[] = {"G","P","R","S","W","NesMemory","NesPrgRom","NesInternalRam","NesSaveRam","NesWorkRam"};
 	int lType=0;
+	int currentcomment = 0;
+
 	if(genmesenlabels == 2) lType=5;
 
 	strcpy(filename, outputfilename);
@@ -1332,8 +1334,6 @@ void export_mesenlabels(void) {
 	strcpy(strptr, ".mlb");
 
 	outfile = fopen(filename, "w");
-
-	int currentcomment = 0;
 
 	qsort(labellist + labelstart, labelend - labelstart + 1, sizeof(label*), comparelabels);
 	qsort(comments, commentcount, sizeof(comment*), comparecomments);
@@ -1546,10 +1546,12 @@ void addcomment(char* text) {
 		newtext[strlen(newtext) - 1] = '\0';
 		c->text = newtext;
 	} else {
+		comment* c;
+
 		//Add a new comment
 		growcommentlist();
 
-		comment* c = (comment*)my_malloc(sizeof(comment));
+		c = (comment*)my_malloc(sizeof(comment));
 		c->pos = filepos;
 		c->text = my_malloc(strlen(text)+1);
 		strcpy(c->text, text);
@@ -2476,9 +2478,10 @@ void opcode(label *id, char **next) {
 	byte *op;
 	int oldstate=needanotherpass;
 	int forceRel = 0;
+	int uns;
+
 	absolute = 0;
 
-	int uns;
 	if (!allowunstable) {
 		for(uns=0;uns<4;uns++) {
 			if (!strcmp((*id).name, unstablelist[uns])) {
