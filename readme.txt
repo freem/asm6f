@@ -17,7 +17,7 @@ Features compared to stock ASM6
   These two are used for ignoring certain defines when using the -n option.
 * Support for iNES original and 2.0 header insertion.
 * Output of .cdl files, for use with FCEUX/Mesen.
-* Output of Mesen-compatible symbol files.
+* Output of Mesen-compatible symbol files (both old and new formats).
 * Generic +/- labels do not break @local scope.
 * Support for a: prefix to force absolute addressing for zero-page addresses.
 
@@ -39,7 +39,8 @@ Options:
         -n         export FCEUX-compatible .nl files
         -f         export Lua symbol file
         -c         export .cdl for use with FCEUX/Mesen
-        -m         export Mesen-compatible label file (.mlb)
+        -m         export new format Mesen label file (.mlb)
+        -M         export old format Mesen label file (.mlb)
         Default output is <sourcefile>.bin
         Default listing is <sourcefile>.lst
 
