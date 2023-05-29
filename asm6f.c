@@ -801,7 +801,7 @@ int getoperator(char **str) {
 				(*str)++;
 				return NOTEQUAL;
 			}
-			//(to default)
+			// fall through
 		default:
 			(*str)--;
 			return NOOP;
@@ -1881,6 +1881,7 @@ int main(int argc,char **argv) {
 					return EXIT_FAILURE;
 				case 'L':
 					verboselisting=1;
+					break;
 				case 'l':
 					listfilename=true_ptr;
 					break;
