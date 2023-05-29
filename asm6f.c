@@ -200,6 +200,7 @@ void expandrept(int,char*);
 void make_error(label*,char**);
 void unstable(label*,char**);
 void hunstable(label*,char**);
+void *my_malloc(size_t);
 char *my_strupr(char*);
 int hexify(int);
 char *strend(char*,char*);
@@ -557,7 +558,7 @@ void DIE(void)
 }
 
 // Same as malloc(), but prints error and exits if allocation fails
-static char* my_malloc( size_t s )
+void* my_malloc( size_t s )
 {
 	char* p = malloc( s ? s : 1 );
 	if ( p == NULL )
@@ -1746,7 +1747,7 @@ void processline(char *src,char *errsrc,int errline) {
 				if(comment)
 					strcat(line,comment);	   //keep comment for listing
 				*makemacro=my_malloc(strlen(line)+sizeof(char*)+1);
-				makemacro=(char**)*makemacro;
+				makemacro=(void*)*makemacro;
 				*makemacro=0;
 				strcpy((char*)&makemacro[1],line);
 			}
@@ -1778,7 +1779,7 @@ void processline(char *src,char *errsrc,int errline) {
 				if(comment)
 					strcat(line,comment);	   //keep comment for listing
 				*makerept=my_malloc(strlen(line)+sizeof(char*)+1);
-				makerept=(char**)*makerept;
+				makerept=(void*)*makerept;
 				*makerept=0;
 				strcpy((char*)&makerept[1],line);
 			}
@@ -2650,7 +2651,7 @@ void macro(label *id, char **next) {
 		while(getlabel(word,&src)) {//don't affect **next directly, make sure it's a good name first
 			*next=src;
 			*makemacro=my_malloc(strlen(word)+sizeof(char*)+1);
-			makemacro=(char**)*makemacro;
+			makemacro=(void*)*makemacro;
 			strcpy((char*)&makemacro[1],word);
 			++params;
 			eatchar(&src,',');
@@ -2686,7 +2687,7 @@ void expandmacro(label *id,char **next,int errline,char *errsrc) {
 	insidemacro++;
 	(*id).used=1;
 	snprintf(macroerr,WORDMAX*2,"%s(%i):%s",errsrc,errline,(*id).name);
-	line=(char**)((*id).line);
+	line=(void*)((*id).line);
 
 	//define macro params
 	s=*next;
@@ -2717,7 +2718,7 @@ void expandmacro(label *id,char **next,int errline,char *errsrc) {
 			if(arg<args) {			  //make named arg
 				addlabel((char*)&line[1],1);
 				equ(0,&s);
-				line=(char**)*line; //next arg name
+				line=(void*)*line; //next arg name
 			}
 			arg++;
 		}
@@ -2730,12 +2731,12 @@ void expandmacro(label *id,char **next,int errline,char *errsrc) {
 	//{..}
 
 	while(arg++ < args) //skip any unused arg names
-		line=(char**)*line;
+		line=(void*)*line;
 
 	while(line) {
 		linecount++;
 		processline((char*)&line[1],macroerr,linecount);
-		line=(char**)*line;
+		line=(void*)*line;
 	}
 	errmsg=0;
 	scope=oldscope;
@@ -2761,7 +2762,7 @@ void expandrept(int errline,char *errsrc) {
 	int linecount;
 	int i,oldscope;
 
-	start=(char**)repttext;//first rept data
+	start=(void*)repttext;//first rept data
 	oldscope=scope;
 	insidemacro++;
 	for(i=rept_loops;i;--i) {
@@ -2772,11 +2773,11 @@ void expandrept(int errline,char *errsrc) {
 		while(line) {
 			linecount++;
 			processline((char*)&line[1],macroerr,linecount);
-			line=(char**)*line;
+			line=(void*)*line;
 		}
 	}
 	while(start) {//delete everything
-		line=(char**)*start;
+		line=(void*)*start;
 		free(start);
 		start=line;
 	}
