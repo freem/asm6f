@@ -1190,7 +1190,7 @@ void export_labelfiles() {
 
 	strptr=strrchr(filename,'.'); // strptr ='.'ptr
 	if(strptr) if(strchr( strptr,'\\' )) strptr = 0; // watch out for "dirname.ext\listfile"
-	if(!strptr) strptr = filename + strlen(str); // strptr -> inputfile extension
+	if(!strptr) strptr = filename + strlen(filename); // strptr -> inputfile extension
 	strcpy(strptr, ".nes.ram.nl");
 
 	ramfile=fopen(filename, "w");
@@ -1259,7 +1259,7 @@ void export_lua() {
 
 	strptr=strrchr(filename,'.'); // strptr ='.'ptr
 	if(strptr) if(strchr( strptr,'\\' )) strptr = 0; // watch out for "dirname.ext\listfile"
-	if(!strptr) strptr = filename + strlen(str); // strptr -> inputfile extension
+	if(!strptr) strptr = filename + strlen(filename); // strptr -> inputfile extension
 	strcpy(strptr, ".lua");
 
 	mainfile=fopen(filename, "w");
