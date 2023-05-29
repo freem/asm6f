@@ -113,6 +113,9 @@ typedef struct {
 typedef unsigned char byte;
 typedef void (*icfn)(label*,char**);
 
+#define fatal_error(fmt, args...) { fprintf(stderr, "\nError: " fmt "\n\n", ## args); DIE(); }
+#define message(fmt, args...) if (verbose) { printf(fmt, ## args); }
+
 //unstable instruction allowance
 int allowunstable = 0;
 int allowhunstable = 0;
@@ -147,6 +150,7 @@ void nes2vs(label*, char**);
 void nes2bram(label*, char**);
 void nes2chrbram(label*, char**);
 
+void DIE(void);
 label *findlabel(const char*);
 void initlabels(void);
 label *newlabel(void);
@@ -540,35 +544,16 @@ static void* ptr_from_bool( int b )
 	return NULL;
 }
 
-// Prints printf-style message to stderr, then exits.
-// Closes and deletes output file.
-static void fatal_error( const char fmt [], ... )
+// Prints printf-style message to stderr then exits.
+// Used by fatal_error() macro.
+void DIE(void)
 {
-	va_list args;
-
 	if ( outputfile != NULL ) {
 		fclose( outputfile );
 		remove( outputfilename );
 	}
 
-	va_start( args, fmt );
-	fprintf( stderr, "\nError: " );
-	vfprintf( stderr, fmt, args );
-	fprintf( stderr, "\n\n" );
-	va_end( args );
-
 	exit( EXIT_FAILURE );
-}
-
-// Prints printf-style message if verbose mode is enabled.
-static void message( const char fmt [], ... )
-{
-	if ( verbose ) {
-		va_list args;
-		va_start( args, fmt );
-		vprintf( fmt, args );
-		va_end( args );
-	}
 }
 
 // Same as malloc(), but prints error and exits if allocation fails
