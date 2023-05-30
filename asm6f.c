@@ -2696,6 +2696,7 @@ void expandmacro(label *id,char **next,int errline,char *errsrc) {
 	id->used=1;
 	snprintf(macroerr,WORDMAX*2,"%s(%i):%s",errsrc,errline,id->name);
 	line=(void*)id->line;
+
 	//define macro params
 	s=*next;
 	args=id->value;   //(named args)
