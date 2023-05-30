@@ -1829,9 +1829,8 @@ badlabel:
 }
 
 void showhelp(void) {
-	puts("");
 	puts("asm6f " VERSION " (+ f003)\n");
-	puts("Usage:  asm6f [-options] sourcefile [outputfile] [listfile]\n");
+	puts("Usage: asm6f [-options] sourcefile [outputfile] [listfile]\n");
 	puts("\t-?\t\tshow this help");
 	puts("\t-l\t\tcreate listing");
 	puts("\t-L\t\tcreate verbose listing (expand REPT, MACRO)");
@@ -1841,7 +1840,7 @@ void showhelp(void) {
 	puts("\t-n\t\texport FCEUX-compatible .nl files");
 	puts("\t-f\t\texport Lua symbol file");
 	puts("\t-c\t\texport .cdl for use with FCEUX/Mesen");
-	puts("\t-m\t\texport new format Mesen label file (.mlb)\n");
+	puts("\t-m\t\texport new format Mesen label file (.mlb)");
 	puts("\t-M\t\texport old format Mesen label file (.mlb)\n");
 	puts("See README.TXT for more info.\n");
 }
