@@ -113,6 +113,9 @@ typedef struct {
 typedef unsigned char byte;
 typedef void (*icfn)(label*,char**);
 
+#define fatal_error(fmt, args...) { fprintf(stderr, "\nError: " fmt "\n\n", ## args); DIE(); }
+#define message(fmt, args...) if (verbose) { printf(fmt, ## args); }
+
 //unstable instruction allowance
 int allowunstable = 0;
 int allowhunstable = 0;
@@ -147,6 +150,7 @@ void nes2vs(label*, char**);
 void nes2bram(label*, char**);
 void nes2chrbram(label*, char**);
 
+void DIE(void);
 label *findlabel(const char*);
 void initlabels(void);
 label *newlabel(void);
@@ -196,6 +200,7 @@ void expandrept(int,char*);
 void make_error(label*,char**);
 void unstable(label*,char**);
 void hunstable(label*,char**);
+void *my_malloc(size_t);
 char *my_strupr(char*);
 int hexify(int);
 char *strend(char*,char*);
@@ -468,6 +473,7 @@ char DivZero[]="Divide by zero.";
 char BadAddr[]="Can't determine address.";
 char NeedName[]="Need a name.";
 char CantOpen[]="Can't open file.";
+char CantRead[]="Can't read file (possible I/O error).";
 char ExtraENDM[]="ENDM without MACRO.";
 char ExtraENDR[]="ENDR without REPT.";
 char ExtraENDE[]="ENDE without ENUM.";
@@ -540,39 +546,20 @@ static void* ptr_from_bool( int b )
 	return NULL;
 }
 
-// Prints printf-style message to stderr, then exits.
-// Closes and deletes output file.
-static void fatal_error( const char fmt [], ... )
+// Prints printf-style message to stderr then exits.
+// Used by fatal_error() macro.
+void DIE(void)
 {
-	va_list args;
-
 	if ( outputfile != NULL ) {
 		fclose( outputfile );
 		remove( outputfilename );
 	}
 
-	va_start( args, fmt );
-	fprintf( stderr, "\nError: " );
-	vfprintf( stderr, fmt, args );
-	fprintf( stderr, "\n\n" );
-	va_end( args );
-
 	exit( EXIT_FAILURE );
 }
 
-// Prints printf-style message if verbose mode is enabled.
-static void message( const char fmt [], ... )
-{
-	if ( verbose ) {
-		va_list args;
-		va_start( args, fmt );
-		vprintf( fmt, args );
-		va_end( args );
-	}
-}
-
 // Same as malloc(), but prints error and exits if allocation fails
-static char* my_malloc( size_t s )
+void* my_malloc( size_t s )
 {
 	char* p = malloc( s ? s : 1 );
 	if ( p == NULL )
@@ -954,13 +941,16 @@ int eval(char **str,int precedence) {
 }
 
 //copy next word from src into dst and advance src
-//mcheck=1 to crop mathy stuff (0 for filenames, etc.)
+//mcheck=0 to crop nothing
+//mcheck=1 to crop mathy stuff
+//mcheck=2 to crop comma (e.g. for incbin)
 void getword(char *dst,char **src,int mcheck) {
 	*src+=strspn(*src,whitesp);//eatwhitespace
 	strncpy(dst,*src,WORDMAX-1);
 	dst[WORDMAX-1]=0;
 	strtok(dst,whitesp);//no trailing whitespace
-	if(mcheck) strtok(dst,mathy);
+	if(mcheck==1) strtok(dst,mathy);
+	else if(mcheck==2) strtok(dst,",");
 	*src+=strlen(dst);
 	if(**src==':') (*src)++;//cheesy fix for rept/macro listing
 }
@@ -984,7 +974,7 @@ void getfilename(char *dst, char **next) {
 			*next=end;
 		}
 	} else {
-		getword(dst,next,0);
+		getword(dst,next,2);
 	}
 }
 
@@ -1761,7 +1751,7 @@ void processline(char *src,char *errsrc,int errline) {
 				if(comment)
 					strcat(line,comment);	   //keep comment for listing
 				*makemacro=my_malloc(strlen(line)+sizeof(char*)+1);
-				makemacro=(char**)*makemacro;
+				makemacro=(void*)*makemacro;
 				*makemacro=0;
 				strcpy((char*)&makemacro[1],line);
 			}
@@ -1793,7 +1783,7 @@ void processline(char *src,char *errsrc,int errline) {
 				if(comment)
 					strcat(line,comment);	   //keep comment for listing
 				*makerept=my_malloc(strlen(line)+sizeof(char*)+1);
-				makerept=(char**)*makerept;
+				makerept=(void*)*makerept;
 				*makerept=0;
 				strcpy((char*)&makerept[1],line);
 			}
@@ -2270,7 +2260,8 @@ void include(label *id,char **next) {
 }
 
 void incbin(label *id,char **next) {
-	int filesize, seekpos, bytesleft, i;
+	int filesize, seekpos, bytesleft;
+	size_t i;
 	FILE *f=0;
 
 	do {
@@ -2303,7 +2294,10 @@ void incbin(label *id,char **next) {
 		while(bytesleft) {
 			if(bytesleft>BUFFSIZE) i=BUFFSIZE;
 			else i=bytesleft;
-			fread(inputbuff,1,i,f);
+			if (fread(inputbuff,1,i,f) != i) {
+				errmsg=CantRead;
+				break;
+			}
 			output(inputbuff,i,DATA);
 			bytesleft-=i;
 		}
@@ -2665,7 +2659,7 @@ void macro(label *id, char **next) {
 		while(getlabel(word,&src)) {//don't affect **next directly, make sure it's a good name first
 			*next=src;
 			*makemacro=my_malloc(strlen(word)+sizeof(char*)+1);
-			makemacro=(char**)*makemacro;
+			makemacro=(void*)*makemacro;
 			strcpy((char*)&makemacro[1],word);
 			++params;
 			eatchar(&src,',');
@@ -2701,8 +2695,7 @@ void expandmacro(label *id,char **next,int errline,char *errsrc) {
 	insidemacro++;
 	id->used=1;
 	snprintf(macroerr,WORDMAX*2,"%s(%i):%s",errsrc,errline,id->name);
-	line=(char**)(id->line);
-
+	line=(void*)id->line;
 	//define macro params
 	s=*next;
 	args=id->value;   //(named args)
@@ -2732,7 +2725,7 @@ void expandmacro(label *id,char **next,int errline,char *errsrc) {
 			if(arg<args) {			  //make named arg
 				addlabel((char*)&line[1],1);
 				equ(0,&s);
-				line=(char**)*line; //next arg name
+				line=(void*)*line; //next arg name
 			}
 			arg++;
 		}
@@ -2745,12 +2738,12 @@ void expandmacro(label *id,char **next,int errline,char *errsrc) {
 	//{..}
 
 	while(arg++ < args) //skip any unused arg names
-		line=(char**)*line;
+		line=(void*)*line;
 
 	while(line) {
 		linecount++;
 		processline((char*)&line[1],macroerr,linecount);
-		line=(char**)*line;
+		line=(void*)*line;
 	}
 	errmsg=0;
 	scope=oldscope;
@@ -2776,7 +2769,7 @@ void expandrept(int errline,char *errsrc) {
 	int linecount;
 	int i,oldscope;
 
-	start=(char**)repttext;//first rept data
+	start=(void*)repttext;//first rept data
 	oldscope=scope;
 	insidemacro++;
 	for(i=rept_loops;i;--i) {
@@ -2787,11 +2780,11 @@ void expandrept(int errline,char *errsrc) {
 		while(line) {
 			linecount++;
 			processline((char*)&line[1],macroerr,linecount);
-			line=(char**)*line;
+			line=(void*)*line;
 		}
 	}
 	while(start) {//delete everything
-		line=(char**)*start;
+		line=(void*)*start;
 		free(start);
 		start=line;
 	}
