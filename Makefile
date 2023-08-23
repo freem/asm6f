@@ -19,8 +19,8 @@ CFLAGS=-Wall
 
 all: safe
 
-safe:
-	$(CC) $(CFLAGS) -o $(BINARY) asm6f.c
+safe: asm6f.c
+	$(CC) $(CFLAGS) -o $(BINARY) $^
 
 clean:
 	$(RM) $(BINARY)
