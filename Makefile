@@ -1,18 +1,16 @@
-# Detect Cygwin vs. MSYS2 vs. native Windows, fall back to Linux
+# Assume Linux/UNIX by default, detect native Windows vs. Cygwin/MSYS2.
+
+BINARY=asm6f
+RM=rm -f
+
 ifeq ($(OS),Windows_NT)
+  BINARY=asm6f.exe
+  RM=del /Q /F
   ifeq ($(OSTYPE),cygwin)
-    BINARY=asm6f
     RM=rm -f
-  else ifeq ($(OSTYPE),msys)
-    BINARY=asm6f
+  else ifdef MSYSTEM
     RM=rm -f
-  else
-    BINARY=asm6f.exe
-    RM=del /Q /F
   endif
-else
-  BINARY=asm6f
-  RM=rm -f
 endif
 
 CFLAGS=-Wall
