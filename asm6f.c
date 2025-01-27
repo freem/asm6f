@@ -1,13 +1,13 @@
 /* asm6f - asm6 with modifications for NES/Famicom development */
 
 /*  asm6f History:
-1.6 + f003
+1.6 + f03 (January 27, 2025)
 	* [controllerhead] +/- labels do not break @local scope
 	* [controllerhead] Added support for newer/older Mesen-compatible (.mlb) label export.
 	* [dttdndn] fix for famistudio sound engine
 	* [morskoyzmey] Absolute addressing support for zero page addresses.
 
-1.6 + f002 (March 10, 2018)
+1.6 + f02 (March 10, 2018)
 	* [nicklausw] Added new directives for INES header generation.
 	* [nicklausw] Put unstable/highly unstable opcode use behind directives,
 	  instead of requiring separate executables.
