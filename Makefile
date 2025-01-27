@@ -11,7 +11,7 @@ endif
 all: safe
 
 safe:
-	$(CC) -Wall asm6f.c -o asm6f
+	$(CC) -Wall asm6f.c -o asm6f -Oz
 
 # sorry to linux people for forcing .exe but I can't get this makefile to determine
 # that I'm really on windows
