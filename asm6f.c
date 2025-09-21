@@ -1,6 +1,10 @@
 /* asm6f - asm6 with modifications for NES/Famicom development */
 
 /*  asm6f History:
+1.6 + f04 (?)
+	* [freem] Add _ASM6F define. Can be used to handle asm6f-specific
+	  functionality while still keeping compatibility with regular asm6.
+
 1.6 + f03 (January 27, 2025)
 	* [controllerhead] +/- labels do not break @local scope
 	* [controllerhead] Added support for newer/older Mesen-compatible (.mlb) label export.
@@ -1494,6 +1498,10 @@ void initlabels(void) {
 		p->type=RESERVED;
 		i++;
 	} while(directives[i].name);
+
+	// "_ASM6F" label can be used to allow standard asm6 to skip asm6f-specific stuff
+	addlabel("_ASM6F",1);
+
 	lastlabel=p;
 }
 
