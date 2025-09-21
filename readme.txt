@@ -1,7 +1,7 @@
 --------------------------------------------------------------
-ASM6f (v1.6)
+ASM6f (v1.6; modifications v03)
 A 6502 assembler by loopy (loopy at mm.st)
-With modifications by freem, nicklausw, and Sour
+With modifications by freem, nicklausw, Sour, controllerhead, dttdndn, and morskoyzmey
 --------------------------------------------------------------
 
 ASM6f is a fork of ASM6, primarily targeted at NES/Famicom development.
@@ -20,6 +20,7 @@ Features compared to stock ASM6
 * Output of Mesen-compatible symbol files (both old and new formats).
 * Generic +/- labels do not break @local scope.
 * Support for a: prefix to force absolute addressing for zero-page addresses.
+* Absolute addressing support for zero page addresses.
 
 --------------------------------------------------------------
 Command line
@@ -286,9 +287,6 @@ freem's To-Do List
 * add .undef? (could react badly on other passes)
 * Allow -d option to set the symbols to a specific value instead of 1?
 * Ignore defines from command line when using -n
-* add absolute addressing via "a:" (ca65 syntax), if loopy doesn't do it first
- * This could get awkward (e.g. if you have a short label named "a"), so possibly
- support a different syntax, despite incompatibility?
 * add ca65 debug format for NintendulatorDX
 
 --------------------------------------------------------------
