@@ -1,50 +1,5 @@
 /* asm6f - asm6 with modifications for NES/Famicom development */
 
-/*  asm6f History:
-1.6 + f04 (?)
-	* [freem] Add _ASM6F define. Can be used to handle asm6f-specific
-	  functionality while still keeping compatibility with regular asm6.
-
-1.6 + f03 (January 27, 2025)
-	* [controllerhead] +/- labels do not break @local scope
-	* [controllerhead] Added support for newer/older Mesen-compatible (.mlb) label export.
-	* [dttdndn] fix for famistudio sound engine
-	* [morskoyzmey] Absolute addressing support for zero page addresses.
-
-1.6 + f02 (March 10, 2018)
-	* [nicklausw] Added new directives for INES header generation.
-	* [nicklausw] Put unstable/highly unstable opcode use behind directives,
-	  instead of requiring separate executables.
-	* [nicklausw] Add support for Lua symbol file generation.
-	* [Sour] Add support for .cdl file generation, for use with FCEUX and Mesen.
-	* [Sour] Add support for Mesen-compatible (.mlb) label export.
-	* [freem] Fixed issue where the last symbol would not appear in an .nl file.
-
-1.6 + freem modifications (June 24, 2015)
-	Added preliminary support for undocumented/illegal opcodes.
-	Added sonder's code to export the .nl files for FCEUX symbolic debugging.
-*/
-
-/*  asm6 History:
-1.6
-	Prevent error overload by emitting 2 bytes when branch instructions fail to parse
-	Bugfix for negative numbers being parsed incorrectly after too many passes are made
-	Compatible with big-endian and 64-bit machines
-	-q (quiet mode) command line option added
-	Lots of miscellaneous code cleanup
-1.51
-	Added extra INCBIN args
-1.5
-	Added local labels
-	Added DL, DH directives
-	Added ERROR directive
-	Bugfix for ACC opcode type
-1.4
-	Decided to start keeping a history.
-	Added some special handling of IFDEF in expandline()
-	Changed macro usage: no parentheses around arg list, and args must be comma separated.
-*/
-
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
