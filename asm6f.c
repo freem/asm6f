@@ -419,6 +419,8 @@ struct {
 		{0, 0}
 };
 
+char Asm6fDefine[]="_ASM6F";
+
 char OutOfRange[]="Value out of range.";
 char SeekOutOfRange[]="Seek position out of range.";
 char BadIncbinSize[]="INCBIN size is out of range.";
@@ -1455,7 +1457,7 @@ void initlabels(void) {
 	} while(directives[i].name);
 
 	// "_ASM6F" label can be used to allow standard asm6 to skip asm6f-specific stuff
-	addlabel("_ASM6F",1);
+	addlabel(Asm6fDefine,1);
 
 	lastlabel=p;
 }
