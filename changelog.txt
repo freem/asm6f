@@ -3,6 +3,7 @@ asm6f History
 1.6 + f04 (?)
 	* [freem] Add _ASM6F define. Can be used to handle asm6f-specific
 	  functionality while still keeping compatibility with regular asm6.
+	* [freem] Mesen label generation now respects ignorenl/endinl.
 
 1.6 + f03 (January 27, 2025)
 	* [controllerhead] +/- labels do not break @local scope

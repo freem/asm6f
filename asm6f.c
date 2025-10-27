@@ -1297,6 +1297,10 @@ void export_mesenlabels(void) {
 			continue;
 		}
 
+		// [freem addition]: handle IGNORENL'd labels
+		if(l->ignorenl)
+			continue;
+
 		if(l->type == LABEL) {
 			//Labels in the actual code
 			if(l->pos < 16) {
