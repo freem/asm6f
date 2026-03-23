@@ -16,7 +16,7 @@
 #define BUFFSIZE 8192			// file buffer (inputbuff, outputbuff) size
 #define WORDMAX 128				// used with getword()
 #define LINEMAX 2048			// plenty of room for nested equates
-#define MAXPASSES 7				// # of tries before giving up
+#define MAXPASSES 8				// # of tries before giving up
 #define IFNESTS 32				// max nested IF levels
 #define DEFAULTFILLER 0			// default fill value
 #define LOCALCHAR '@'
@@ -190,7 +190,10 @@ enum optypes {ACC,IMM,IND,INDX,INDY,ZPX,ZPY,ABSX,ABSY,ZP,ABS,REL,IMP};
 int opsize[]={0,1,2,1,1,1,1,2,2,1,2,1,0};
 char ophead[]={0,'#','(','(','(',0,0,0,0,0,0,0,0};
 const char *optail[]={"A","",")",",X)","),Y",",X",",Y",",X",",Y","","","",""};
+const char *FamicomPPULabels[]={"PPUCTRL","PPUMASK","PPUSTATUS","OAMADDR","OAMDATA","PPUSCROLL","PPUADDR","PPUDATA"};
+
 byte brk[]={0x00,IMM,0x00,ZP,0x00,IMP,-1,-1};
+byte stp[]={0x02,IMP,-1,-1 };
 byte ora[]={0x09,IMM,0x01,INDX,0x11,INDY,0x15,ZPX,0x1d,ABSX,0x19,ABSY,0x05,ZP,0x0d,ABS,-1,-1};
 byte asl[]={0x0a,ACC,0x16,ZPX,0x1e,ABSX,0x06,ZP,0x0e,ABS,0x0a,IMP,-1,-1};
 byte php[]={0x08,IMP,-1,-1};
@@ -278,6 +281,9 @@ byte xaa[]={0x8b,IMM,-1,-1};
 //byte lax[]={0xab,IMM,-1,-1};
 
 const void *rsvdlist[]={	   //all reserved words
+		"STP",stp,
+		"HLT",stp,
+
 		"BRK",brk,
 		"PHP",php,
 		"BPL",bpl,
@@ -448,6 +454,7 @@ char NoENDE[]="Missing ENDE.";
 char NoENDINL[]="Missing ENDINL.";
 char IfNestLimit[]="Too many nested IFs.";
 char undefinedPC[]="PC is undefined (use ORG first)";
+char BankOverflow[] = "Bank out of space.";
 
 char whitesp[]=" \t\r\n:";  //treat ":" like whitespace (for labels)
 char whitesp2[]=" \t\r\n\"";	//(used for filename processing)
@@ -1803,6 +1810,7 @@ void showhelp(void) {
 	puts("\t-?\t\tshow this help");
 	puts("\t-l\t\tcreate listing");
 	puts("\t-L\t\tcreate verbose listing (expand REPT, MACRO)");
+	puts("\t-N\t\tdefine symbols for Nintendo Famicom PPU");
 	puts("\t-d<name>\tdefine symbol");
 	puts("\t-q\t\tquiet mode (no output unless error)");
 	// [additions from various sources (freem, nicklausw, Sour)]
@@ -1868,6 +1876,18 @@ int main(int argc,char **argv) {
 							p->name=my_strdup(&argv[i][2]);
 							p->type=VALUE;
 							p->value=1;
+							p->line=true_ptr;
+							p->pass=0;
+						}
+					}
+					break;
+				case 'N':
+					for (int j=0;j<8;j++){
+						if (!findlabel((char*)FamicomPPULabels[j])) {
+							p=newlabel();
+							p->name=my_strdup(FamicomPPULabels[j]);
+							p->type=VALUE;
+							p->value=0x2000+j; // ?
 							p->line=true_ptr;
 							p->pass=0;
 						}
@@ -2394,7 +2414,7 @@ void filler(int count,char **next) {
 	if(eatchar(next,','))
 		val=eval(next,WHOLEEXP);
 	if(!errmsg && !dependant) if(val>255 || val<-128 || count<0 || count>0x100000)
-		errmsg=OutOfRange;
+		errmsg=BankOverflow;
 	if(errmsg) return;
 	while(count--)//!#@$
 		 output_le(val,1,NONE);
