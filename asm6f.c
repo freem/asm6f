@@ -16,7 +16,7 @@
 #define BUFFSIZE 8192			// file buffer (inputbuff, outputbuff) size
 #define WORDMAX 128				// used with getword()
 #define LINEMAX 2048			// plenty of room for nested equates
-#define MAXPASSES 8				// # of tries before giving up
+#define MAXPASSES 7				// # of tries before giving up
 #define IFNESTS 32				// max nested IF levels
 #define DEFAULTFILLER 0			// default fill value
 #define LOCALCHAR '@'

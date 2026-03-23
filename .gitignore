@@ -5,3 +5,4 @@ test_cases/incbin/incbin.bin
 *.tasm
 ignore
 .vs
+asm6f
