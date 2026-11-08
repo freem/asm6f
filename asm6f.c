@@ -1,4 +1,5 @@
 /* asm6f - asm6 with modifications for NES/Famicom development */
+// lovebug : added better error reporting
 
 #include <stdio.h>
 #include <string.h>
@@ -177,7 +178,7 @@ void initcomments(void);
 void growcommentlist(void);
 void addcomment(char*);
 void growlist(void);
-void showerror(char*,int);
+void showerror(char*,int,char*);
 void processfile(FILE*,char*);
 void showhelp(void);
 void output(byte*,int,int);
@@ -1647,14 +1648,38 @@ label *newlabel(void) {
 
 //==============================================================================================================
 
-void showerror(char *errsrc,int errline) {
-	error=1;
-	fprintf(stderr,"%s(%i): %s\n",errsrc,errline,errmsg);
+// lovebug : Print source line with a caret under the failed word (gvline).
+static void print_errline(const char *line)
+{
+    const char *end = line + strlen(line);
+    while (end > line && (end[-1]=='\n' || end[-1]=='\r'))
+        end--;
 
-	if(!listerr)//only list the first error for this line
-		listerr=errmsg;
+    const char *hit = gvline[0] ? strstr(line, gvline) : NULL;
+
+    for (const char *p = line; p < end; p++) {
+        fputc(*p, stderr);
+    }
+    fputc('\n', stderr);
+
+    if (hit) {
+        for (const char *p = line; p < hit; p++) {
+            fputc(*p == '\t' ? '\t' : ' ', stderr);
+        }
+        fprintf(stderr, "^\n");
+    }
 }
 
+void showerror(char *errsrc,int errline, char *exp_line) {
+    error=1;
+    fprintf(stderr,"%s:%i: error: %s.\n",errsrc,errline,errmsg);
+
+	if (exp_line && *exp_line)
+		print_errline(exp_line);
+
+    if(!listerr)//only list the first error for this line
+        listerr=errmsg;
+}
 //process the open file f
 char fileline[LINEMAX];
 void processfile(FILE *f, char* name) {
@@ -1684,7 +1709,7 @@ void processfile(FILE *f, char* name) {
 		if(nonl)
 			errmsg=NoENDINL;
 		if(errmsg)
-			showerror(name,nline);
+			showerror(name,nline,NULL);
 	}
 }
 
@@ -1706,7 +1731,7 @@ void processline(char *src,char *errsrc,int errline) {
 
 	s=line;
 	if(errmsg) {	//expandline error?
-		showerror(errsrc,errline);
+		showerror(errsrc,errline,line);
 	} else do {
 		if(makemacro) { //we're inside a macro definition
 			p=getreserved(&s);
@@ -1799,7 +1824,7 @@ void processline(char *src,char *errsrc,int errline) {
 		}
 badlabel:
 		if(errmsg) {
-			showerror(errsrc,errline);
+			showerror(errsrc,errline,line);
 		}
 	} while(0);
 }
