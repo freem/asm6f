@@ -673,7 +673,9 @@ bin:		j=*s;
 		} else
 			errmsg=NotANumber;
 	} else {	//label---------------
-		p=findlabel(gvline);
+		char *nm = gvline; // lovebug : strip '~' global-prefix on lookup
+		if(*nm=='~') nm++;
+		p=findlabel(nm);
 		if(!p) {//label doesn't exist (yet?)
 			needanotherpass=dependant=1;
 			if(lastchance) {//only show error once we're certain label will never exist
@@ -996,6 +998,7 @@ int getlabel(char *dst,char **src) {
 		if(!*s)//just ++.. or --.., no text
 			return 1;
 	}
+	if(c=='~') s++; // lovebug : '~' global-label prefix
 	c=*s;
 	if(c==LOCALCHAR || c=='_' || (c>='A' && c<='Z') || (c>='a' && c<='z')) {//label can start with these
 		return 1;
@@ -1380,8 +1383,17 @@ void export_mesenlabels(void) {
 //  true: force label to be local (used for macros)
 void addlabel(char *word, int local) {
 	char c=*word;
-	label *p=findlabel(word);
-	if(p && local && !p->scope && p->type!=VALUE) //if it's global and we're local
+	int forceGlobal = 0;
+	label *p;
+
+	if(c=='~') { // lovebug : '~' means: force this label global
+		forceGlobal = 1;
+		word++;
+		c = *word;
+	}
+
+	p=findlabel(word);
+	if(!forceGlobal && p && local && !p->scope && p->type!=VALUE) //if it's global and we're local
 		p=0;//pretend we didn't see it (local label overrides global of the same name)
 	//global labels advance scope
 	if(c!=LOCALCHAR && !local && c!= '+' && c != '-') {
@@ -1403,7 +1415,9 @@ void addlabel(char *word, int local) {
 		// [freem addition]
 		labelhere->ignorenl=nonl;
 
-		if(c==LOCALCHAR || local) { //local
+		if(forceGlobal) { // lovebug : handle the forced global
+			labelhere->scope=0;
+		} else if(c==LOCALCHAR || local) { //local
 			labelhere->scope=scope;
 		} else {		//global
 			labelhere->scope=0;
@@ -1411,6 +1425,8 @@ void addlabel(char *word, int local) {
 		lastlabel=labelhere;
 	} else {//old label
 		labelhere=p;
+		if(forceGlobal)		// lovebug : upgrade existing local to global
+			p->scope=0;
 		if(p->pass==pass && c!='-') {//if this label already encountered
 			if(p->type==VALUE)
 				return;
