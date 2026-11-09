@@ -1,4 +1,5 @@
 /* asm6f - asm6 with modifications for NES/Famicom development */
+// lovebug : added better error reporting
 
 #include <stdio.h>
 #include <string.h>
@@ -177,7 +178,7 @@ void initcomments(void);
 void growcommentlist(void);
 void addcomment(char*);
 void growlist(void);
-void showerror(char*,int);
+void showerror(char*,int,char*);
 void processfile(FILE*,char*);
 void showhelp(void);
 void output(byte*,int,int);
@@ -672,7 +673,9 @@ bin:		j=*s;
 		} else
 			errmsg=NotANumber;
 	} else {	//label---------------
-		p=findlabel(gvline);
+		char *nm = gvline; // lovebug : strip '~' global-prefix on lookup
+		if(*nm=='~') nm++;
+		p=findlabel(nm);
 		if(!p) {//label doesn't exist (yet?)
 			needanotherpass=dependant=1;
 			if(lastchance) {//only show error once we're certain label will never exist
@@ -995,6 +998,7 @@ int getlabel(char *dst,char **src) {
 		if(!*s)//just ++.. or --.., no text
 			return 1;
 	}
+	if(c=='~') s++; // lovebug : '~' global-label prefix
 	c=*s;
 	if(c==LOCALCHAR || c=='_' || (c>='A' && c<='Z') || (c>='a' && c<='z')) {//label can start with these
 		return 1;
@@ -1379,8 +1383,17 @@ void export_mesenlabels(void) {
 //  true: force label to be local (used for macros)
 void addlabel(char *word, int local) {
 	char c=*word;
-	label *p=findlabel(word);
-	if(p && local && !p->scope && p->type!=VALUE) //if it's global and we're local
+	int forceGlobal = 0;
+	label *p;
+
+	if(c=='~') { // lovebug : '~' means: force this label global
+		forceGlobal = 1;
+		word++;
+		c = *word;
+	}
+
+	p=findlabel(word);
+	if(!forceGlobal && p && local && !p->scope && p->type!=VALUE) //if it's global and we're local
 		p=0;//pretend we didn't see it (local label overrides global of the same name)
 	//global labels advance scope
 	if(c!=LOCALCHAR && !local && c!= '+' && c != '-') {
@@ -1402,7 +1415,9 @@ void addlabel(char *word, int local) {
 		// [freem addition]
 		labelhere->ignorenl=nonl;
 
-		if(c==LOCALCHAR || local) { //local
+		if(forceGlobal) { // lovebug : handle the forced global
+			labelhere->scope=0;
+		} else if(c==LOCALCHAR || local) { //local
 			labelhere->scope=scope;
 		} else {		//global
 			labelhere->scope=0;
@@ -1410,6 +1425,8 @@ void addlabel(char *word, int local) {
 		lastlabel=labelhere;
 	} else {//old label
 		labelhere=p;
+		if(forceGlobal)		// lovebug : upgrade existing local to global
+			p->scope=0;
 		if(p->pass==pass && c!='-') {//if this label already encountered
 			if(p->type==VALUE)
 				return;
@@ -1647,14 +1664,38 @@ label *newlabel(void) {
 
 //==============================================================================================================
 
-void showerror(char *errsrc,int errline) {
-	error=1;
-	fprintf(stderr,"%s(%i): %s\n",errsrc,errline,errmsg);
+// lovebug : Print source line with a caret under the failed word (gvline).
+static void print_errline(const char *line)
+{
+    const char *end = line + strlen(line);
+    while (end > line && (end[-1]=='\n' || end[-1]=='\r'))
+        end--;
 
-	if(!listerr)//only list the first error for this line
-		listerr=errmsg;
+    const char *hit = gvline[0] ? strstr(line, gvline) : NULL;
+
+    for (const char *p = line; p < end; p++) {
+        fputc(*p, stderr);
+    }
+    fputc('\n', stderr);
+
+    if (hit) {
+        for (const char *p = line; p < hit; p++) {
+            fputc(*p == '\t' ? '\t' : ' ', stderr);
+        }
+        fprintf(stderr, "^\n");
+    }
 }
 
+void showerror(char *errsrc,int errline, char *exp_line) {
+    error=1;
+    fprintf(stderr,"%s:%i: error: %s.\n",errsrc,errline,errmsg);
+
+	if (exp_line && *exp_line)
+		print_errline(exp_line);
+
+    if(!listerr)//only list the first error for this line
+        listerr=errmsg;
+}
 //process the open file f
 char fileline[LINEMAX];
 void processfile(FILE *f, char* name) {
@@ -1684,7 +1725,7 @@ void processfile(FILE *f, char* name) {
 		if(nonl)
 			errmsg=NoENDINL;
 		if(errmsg)
-			showerror(name,nline);
+			showerror(name,nline,NULL);
 	}
 }
 
@@ -1706,7 +1747,7 @@ void processline(char *src,char *errsrc,int errline) {
 
 	s=line;
 	if(errmsg) {	//expandline error?
-		showerror(errsrc,errline);
+		showerror(errsrc,errline,line);
 	} else do {
 		if(makemacro) { //we're inside a macro definition
 			p=getreserved(&s);
@@ -1799,7 +1840,7 @@ void processline(char *src,char *errsrc,int errline) {
 		}
 badlabel:
 		if(errmsg) {
-			showerror(errsrc,errline);
+			showerror(errsrc,errline,line);
 		}
 	} while(0);
 }
